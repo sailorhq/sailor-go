@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailorhq/sailor-go/pkg/types"
+	"github.com/sailorhq/sailor-go/pkg/opts"
 )
 
 func TestPullConfigDefault(t *testing.T) {
-	err := Initialize(types.SailorOpts{
-		Resources: []types.ResourceOption{
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
 			ConfigPullDefault(),
 		},
-		Connection: &types.ConnectionParam{
+		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "sailor",
 			App:           "backend-core",
@@ -36,19 +36,19 @@ func TestPullConfigDefault(t *testing.T) {
 }
 
 func TestVolumeConfigKeyNotPresent(t *testing.T) {
-	err := Initialize(types.SailorOpts{
-		Resources: []types.ResourceOption{
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
 			{
-				Def: types.ResourceDefinition{
-					Kind: types.CONFIGS,
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
 					Path: "./test",
 				},
-				FetchDef: types.FetchDefinition{
-					Fetch: types.VOLUME,
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
 				},
 			},
 		},
-		Connection: &types.ConnectionParam{
+		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test",
@@ -70,19 +70,19 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 }
 
 func TestVolumeConfig(t *testing.T) {
-	err := Initialize(types.SailorOpts{
-		Resources: []types.ResourceOption{
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
 			{
-				Def: types.ResourceDefinition{
-					Kind: types.CONFIGS,
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
 					Path: "./test",
 				},
-				FetchDef: types.FetchDefinition{
-					Fetch: types.VOLUME,
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
 				},
 			},
 		},
-		Connection: &types.ConnectionParam{
+		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test",
@@ -104,19 +104,19 @@ func TestVolumeConfig(t *testing.T) {
 }
 
 func TestVolumeConfigWithWatcherChange(t *testing.T) {
-	err := Initialize(types.SailorOpts{
-		Resources: []types.ResourceOption{
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
 			{
-				Def: types.ResourceDefinition{
-					Kind: types.CONFIGS,
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
 					Path: "./test",
 				},
-				FetchDef: types.FetchDefinition{
-					Fetch: types.VOLUME,
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
 				},
 			},
 		},
-		Connection: &types.ConnectionParam{
+		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test2",
@@ -155,19 +155,19 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 }
 
 func TestVolumeSecret(t *testing.T) {
-	err := Initialize(types.SailorOpts{
-		Resources: []types.ResourceOption{
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
 			{
-				Def: types.ResourceDefinition{
-					Kind: types.SECRETS,
+				Def: opts.ResourceDefinition{
+					Kind: opts.SECRETS,
 					Path: "./test",
 				},
-				FetchDef: types.FetchDefinition{
-					Fetch: types.VOLUME,
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
 				},
 			},
 		},
-		Connection: &types.ConnectionParam{
+		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test3",

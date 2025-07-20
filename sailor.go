@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sailorhq/sailor-go/pkg/types"
+	"github.com/sailorhq/sailor-go/pkg/opts"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -28,7 +28,7 @@ const (
 )
 
 type sailor struct {
-	opts types.SailorOpts
+	opts opts.InitOption
 
 	sailorClient *http.Client
 
@@ -58,7 +58,7 @@ var consumer = sailor{
 
 // watcherInfo is a union of the resource which needs to be watched
 type watcherInfo struct {
-	kind types.ResourceKind
+	kind opts.ResourceKind
 
 	// path is the directory where the resource can be found
 	path string
@@ -77,13 +77,13 @@ var watcherFileNameResourceMap = map[string]watcherInfo{}
 // If the ResourceOption(s) are empty, sailor doesn't consume anything.
 // You can either provied ConnectionParam through `opts` or through ENV variables.
 // If both of them are empty, sailor doesn't consume anything.
-func Initialize(opts types.SailorOpts) error {
-	if len(opts.Resources) == 0 {
+func Initialize(initOpts opts.InitOption) error {
+	if len(initOpts.Resources) == 0 {
 		return errors.New("no resources to manage, pass Resources inside opts")
 	}
 
-	if opts.Connection == nil {
-		var conn = types.ConnectionParam{}
+	if initOpts.Connection == nil {
+		var conn = opts.ConnectionOption{}
 		// we try getting all the necessary details from env
 
 		if conn.Addr = os.Getenv(ENV_SAILOR_URL); conn.Addr == "" {
@@ -106,7 +106,7 @@ func Initialize(opts types.SailorOpts) error {
 			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_SECRET_KEY or set Connection in SailorOpts")
 		}
 	} else {
-		consumer.opts = opts
+		consumer.opts = initOpts
 	}
 
 	configRef := make(map[string]any)
@@ -121,17 +121,17 @@ func Initialize(opts types.SailorOpts) error {
 	consumer.watcher, _ = fsnotify.NewWatcher()
 
 	// we will check what resources are required and how to manage them
-	for _, res := range opts.Resources {
+	for _, res := range initOpts.Resources {
 		switch res.Def.Kind {
-		case types.CONFIGS:
+		case opts.CONFIGS:
 			if err := consumer.manageConfig(&res); err != nil {
 				return err
 			}
-		case types.SECRETS:
+		case opts.SECRETS:
 			if err := consumer.manageSecrets(&res); err != nil {
 				return err
 			}
-		case types.MISC:
+		case opts.MISC:
 			if err := consumer.manageMisc(&res); err != nil {
 				return err
 			}
@@ -157,7 +157,7 @@ func (s *sailor) watchForVolumeChanges() {
 				resourceName := path.Base(event.Name)
 				if wi, ok := watcherFileNameResourceMap[resourceName]; ok {
 					switch wi.kind {
-					case types.CONFIGS:
+					case opts.CONFIGS:
 						configBytes, err := os.ReadFile(wi.path)
 						if err != nil {
 							log.Println("config has changed but unable to updated it due to: ", err.Error())
@@ -170,7 +170,7 @@ func (s *sailor) watchForVolumeChanges() {
 						}
 
 						s.configs.Store(&config)
-					case types.SECRETS:
+					case opts.SECRETS:
 						secretBytes, err := os.ReadFile(wi.path)
 						if err != nil {
 							log.Println("secrets has changed but unable to updated it due to: ", err.Error())
@@ -184,7 +184,7 @@ func (s *sailor) watchForVolumeChanges() {
 						}
 
 						s.secrets.Store(&secret)
-					case types.MISC:
+					case opts.MISC:
 						miscBytes, err := os.ReadFile(wi.path)
 						if err != nil {
 							log.Println("misc has changed but unable to updated it due to: ", err.Error())
@@ -245,9 +245,9 @@ func parseMisc(miscBytes []byte, resourceName string) (map[string]string, error)
 }
 
 // manageConfig manages the config defined inside Sailor for a given namespace and app
-func (s *sailor) manageConfig(res *types.ResourceOption) error {
+func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
-	case types.VOLUME:
+	case opts.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-config", s.opts.Connection.App)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
@@ -262,7 +262,7 @@ func (s *sailor) manageConfig(res *types.ResourceOption) error {
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{types.CONFIGS, resourcePath, ""}
+			watcherFileNameResourceMap[fileName] = watcherInfo{opts.CONFIGS, resourcePath, ""}
 			s.watcher.Add(resourcePath)
 
 			return nil
@@ -273,7 +273,7 @@ func (s *sailor) manageConfig(res *types.ResourceOption) error {
 		}
 
 		return nil
-	case types.PULL:
+	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/config",
 			s.opts.Connection.Addr,
@@ -320,9 +320,9 @@ func (s *sailor) manageConfig(res *types.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) manageSecrets(res *types.ResourceOption) error {
+func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
-	case types.VOLUME:
+	case opts.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-secret", s.opts.Connection.App)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
@@ -339,7 +339,7 @@ func (s *sailor) manageSecrets(res *types.ResourceOption) error {
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{types.SECRETS, resourcePath, ""}
+			watcherFileNameResourceMap[fileName] = watcherInfo{opts.SECRETS, resourcePath, ""}
 			s.watcher.Add(resourcePath)
 
 			return nil
@@ -350,7 +350,7 @@ func (s *sailor) manageSecrets(res *types.ResourceOption) error {
 		}
 
 		return nil
-	case types.PULL:
+	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/secret",
 			s.opts.Connection.Addr,
@@ -397,10 +397,10 @@ func (s *sailor) manageSecrets(res *types.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) manageMisc(res *types.ResourceOption) error {
+func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 	resourceName := fmt.Sprintf("%s-%s", res.Def.Name, "misc")
 	switch res.FetchDef.Fetch {
-	case types.VOLUME:
+	case opts.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-%s", s.opts.Connection.App, resourceName)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
@@ -414,7 +414,7 @@ func (s *sailor) manageMisc(res *types.ResourceOption) error {
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{types.MISC, resourcePath, res.Def.Name}
+			watcherFileNameResourceMap[fileName] = watcherInfo{opts.MISC, resourcePath, res.Def.Name}
 			s.watcher.Add(resourcePath)
 
 			return nil
@@ -425,7 +425,7 @@ func (s *sailor) manageMisc(res *types.ResourceOption) error {
 		}
 
 		return nil
-	case types.PULL:
+	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
 			s.opts.Connection.Addr,
@@ -504,7 +504,7 @@ func (s *sailor) fetchFallback(forKind string) error {
 	return errors.New("cannot find config to serve, fallback fetch also failed")
 }
 
-func (s *sailor) keepPullingConfig(res *types.ResourceOption) {
+func (s *sailor) keepPullingConfig(res *opts.ResourceOption) {
 	url := fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
 		s.opts.Connection.Addr,
 		s.opts.Connection.Namespace,

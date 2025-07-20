@@ -3,7 +3,7 @@ package sailor
 import (
 	"time"
 
-	"github.com/sailorhq/sailor-go/pkg/types"
+	"github.com/sailorhq/sailor-go/pkg/opts"
 )
 
 const (
@@ -13,14 +13,14 @@ const (
 // ConfigMapDefault is a ResourceOption which looks for a config_map inside K8S volume
 // mounted path. If it does not find the resource it fetches the resource from
 // fallback.
-func ConfigMapDefault() types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.CONFIGS,
+func ConfigMapDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.CONFIGS,
 			Path: volume_mount_path,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch: types.VOLUME,
+		FetchDef: opts.FetchDefinition{
+			Fetch: opts.VOLUME,
 		},
 		FallbackEnabled: true,
 	}
@@ -29,14 +29,14 @@ func ConfigMapDefault() types.ResourceOption {
 // SecretsDefault is a ResourceOption which looks for a k8s_secret inside K8S volume
 // mounted path. If it does not find the resource it fetches the resource from
 // fallback.
-func SecretsDefault() types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.SECRETS,
+func SecretsDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.SECRETS,
 			Path: volume_mount_path,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch: types.VOLUME,
+		FetchDef: opts.FetchDefinition{
+			Fetch: opts.VOLUME,
 		},
 		FallbackEnabled: true,
 	}
@@ -47,15 +47,15 @@ func SecretsDefault() types.ResourceOption {
 // fallback.
 // @NOTE: this only pulls the resource once, if you want the client to refresh on
 // certain interval, use `MiscPullDefault`.
-func MiscOnceDefault(resourceName string) types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.MISC,
+func MiscOnceDefault(resourceName string) opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.MISC,
 			Name: resourceName,
 			Path: volume_mount_path,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch: types.PULL,
+		FetchDef: opts.FetchDefinition{
+			Fetch: opts.PULL,
 			Once:  true,
 		},
 		FallbackEnabled: true,
@@ -64,13 +64,13 @@ func MiscOnceDefault(resourceName string) types.ResourceOption {
 
 // ConfigPullDefault is a ResourceOption which pulls a config from Sailor using
 // pull method. This updates the config every 10 seconds.
-func ConfigPullDefault() types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.CONFIGS,
+func ConfigPullDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.CONFIGS,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch:        types.PULL,
+		FetchDef: opts.FetchDefinition{
+			Fetch:        opts.PULL,
 			PullInterval: 10 * time.Second,
 		},
 		FallbackEnabled: true,
@@ -79,13 +79,13 @@ func ConfigPullDefault() types.ResourceOption {
 
 // SecretsPullDefault is a ResourceOption which pulls a secrets from Sailor using
 // pull method. This updates the config every 10 seconds.
-func SecretsPullDefault() types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.SECRETS,
+func SecretsPullDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.SECRETS,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch:        types.PULL,
+		FetchDef: opts.FetchDefinition{
+			Fetch:        opts.PULL,
 			PullInterval: 10 * time.Second,
 		},
 		FallbackEnabled: true,
@@ -94,14 +94,14 @@ func SecretsPullDefault() types.ResourceOption {
 
 // MiscPullDefault is a ResourceOption which pulls a misc config from Sailor using
 // pull method. This updates the config every 10 seconds.
-func MiscPullDefault(resourceName string) types.ResourceOption {
-	return types.ResourceOption{
-		Def: types.ResourceDefinition{
-			Kind: types.MISC,
+func MiscPullDefault(resourceName string) opts.ResourceOption {
+	return opts.ResourceOption{
+		Def: opts.ResourceDefinition{
+			Kind: opts.MISC,
 			Name: resourceName,
 		},
-		FetchDef: types.FetchDefinition{
-			Fetch:        types.PULL,
+		FetchDef: opts.FetchDefinition{
+			Fetch:        opts.PULL,
 			PullInterval: 10 * time.Second,
 		},
 		FallbackEnabled: true,

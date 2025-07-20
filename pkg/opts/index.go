@@ -1,4 +1,4 @@
-package types
+package opts
 
 import "time"
 
@@ -15,7 +15,7 @@ const (
 	MISC
 )
 
-type ConnectionParam struct {
+type ConnectionOption struct {
 	Addr          string
 	Namespace     string
 	App           string
@@ -24,8 +24,8 @@ type ConnectionParam struct {
 	SocketTimeout time.Duration
 }
 
-type SailorOpts struct {
-	Connection *ConnectionParam
+type InitOption struct {
+	Connection *ConnectionOption
 	Logging    bool
 
 	// Resources defines what all resources does the Sailor Client need to manage
