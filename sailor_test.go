@@ -10,7 +10,7 @@ import (
 )
 
 func TestPullConfigDefault(t *testing.T) {
-	err := Connect(types.SailorOpts{
+	err := Initialize(types.SailorOpts{
 		Resources: []types.ResourceOption{
 			ConfigPullDefault(),
 		},
@@ -36,7 +36,7 @@ func TestPullConfigDefault(t *testing.T) {
 }
 
 func TestVolumeConfigKeyNotPresent(t *testing.T) {
-	err := Connect(types.SailorOpts{
+	err := Initialize(types.SailorOpts{
 		Resources: []types.ResourceOption{
 			{
 				Def: types.ResourceDefinition{
@@ -70,7 +70,7 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 }
 
 func TestVolumeConfig(t *testing.T) {
-	err := Connect(types.SailorOpts{
+	err := Initialize(types.SailorOpts{
 		Resources: []types.ResourceOption{
 			{
 				Def: types.ResourceDefinition{
@@ -104,7 +104,7 @@ func TestVolumeConfig(t *testing.T) {
 }
 
 func TestVolumeConfigWithWatcherChange(t *testing.T) {
-	err := Connect(types.SailorOpts{
+	err := Initialize(types.SailorOpts{
 		Resources: []types.ResourceOption{
 			{
 				Def: types.ResourceDefinition{
@@ -155,7 +155,7 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 }
 
 func TestVolumeSecret(t *testing.T) {
-	err := Connect(types.SailorOpts{
+	err := Initialize(types.SailorOpts{
 		Resources: []types.ResourceOption{
 			{
 				Def: types.ResourceDefinition{

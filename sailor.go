@@ -56,15 +56,32 @@ var consumer = sailor{
 	sailorClient: &http.Client{},
 }
 
+// watcherInfo is a union of the resource which needs to be watched
 type watcherInfo struct {
 	kind types.ResourceKind
+
+	// path is the directory where the resource can be found
 	path string
+
+	// name is the name of the resource, this is only used in case of misc config
+	// where a resource can have its own name
 	name string
 }
 
+// watcherFileNameResourceMap keeps tab of resources which needs to be watched.
+// @key = the name of the resource
+// @value = metadata of the value
 var watcherFileNameResourceMap = map[string]watcherInfo{}
 
-func Connect(opts types.SailorOpts) error {
+// Initialize function initializes the sailor consumer with the given ResourceOption(s).
+// If the ResourceOption(s) are empty, sailor doesn't consume anything.
+// You can either provied ConnectionParam through `opts` or through ENV variables.
+// If both of them are empty, sailor doesn't consume anything.
+func Initialize(opts types.SailorOpts) error {
+	if len(opts.Resources) == 0 {
+		return errors.New("no resources to manage, pass Resources inside opts")
+	}
+
 	if opts.Connection == nil {
 		var conn = types.ConnectionParam{}
 		// we try getting all the necessary details from env
@@ -92,15 +109,13 @@ func Connect(opts types.SailorOpts) error {
 		consumer.opts = opts
 	}
 
-	if len(opts.Resources) == 0 {
-		return errors.New("no resources to manage, pass Resources inside opts")
-	}
-
 	configRef := make(map[string]any)
-	secretRef := make(map[string]string)
-	miscRef := make(map[string]string)
 	consumer.configs.Store(&configRef)
+
+	secretRef := make(map[string]string)
 	consumer.secrets.Store(&secretRef)
+
+	miscRef := make(map[string]string)
 	consumer.misc.Store(&miscRef)
 
 	consumer.watcher, _ = fsnotify.NewWatcher()
@@ -123,6 +138,8 @@ func Connect(opts types.SailorOpts) error {
 		}
 	}
 
+	// this means that there are volume mounted resources which needs to be watched
+	// for changes
 	if consumer.hasWatchableResource {
 		go consumer.watchForVolumeChanges()
 	}
@@ -130,6 +147,8 @@ func Connect(opts types.SailorOpts) error {
 	return nil
 }
 
+// watchForVolumeChanges checks for all the paths mentioned in ResourceOption(s)
+// which is of kind: Volume.
 func (s *sailor) watchForVolumeChanges() {
 	for {
 		select {
@@ -188,6 +207,8 @@ func (s *sailor) watchForVolumeChanges() {
 	}
 }
 
+// parseConfig parses the config bytes as per the format saved by sailor. Since we need to support
+// K8S deployment as well, we stringify the json under _content key.
 func parseConfig(configBytes []byte) (map[string]any, error) {
 	var content map[string]string
 	err := json.Unmarshal(configBytes, &content)
