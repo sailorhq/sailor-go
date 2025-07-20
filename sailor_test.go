@@ -44,7 +44,7 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 					Path: "./test",
 				},
 				FetchDef: types.FetchDefinition{
-					Fetch: types.K8S,
+					Fetch: types.VOLUME,
 				},
 			},
 		},
@@ -78,7 +78,7 @@ func TestVolumeConfig(t *testing.T) {
 					Path: "./test",
 				},
 				FetchDef: types.FetchDefinition{
-					Fetch: types.K8S,
+					Fetch: types.VOLUME,
 				},
 			},
 		},
@@ -112,7 +112,7 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 					Path: "./test",
 				},
 				FetchDef: types.FetchDefinition{
-					Fetch: types.K8S,
+					Fetch: types.VOLUME,
 				},
 			},
 		},
@@ -163,7 +163,7 @@ func TestVolumeSecret(t *testing.T) {
 					Path: "./test",
 				},
 				FetchDef: types.FetchDefinition{
-					Fetch: types.K8S,
+					Fetch: types.VOLUME,
 				},
 			},
 		},

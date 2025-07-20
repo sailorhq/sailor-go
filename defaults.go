@@ -20,7 +20,7 @@ func ConfigMapDefault() types.ResourceOption {
 			Path: volume_mount_path,
 		},
 		FetchDef: types.FetchDefinition{
-			Fetch: types.K8S,
+			Fetch: types.VOLUME,
 		},
 		FallbackEnabled: true,
 	}
@@ -36,7 +36,7 @@ func SecretsDefault() types.ResourceOption {
 			Path: volume_mount_path,
 		},
 		FetchDef: types.FetchDefinition{
-			Fetch: types.K8S,
+			Fetch: types.VOLUME,
 		},
 		FallbackEnabled: true,
 	}

@@ -7,7 +7,7 @@ type ResourceKind int
 type FetchOption int
 
 const (
-	K8S FetchOption = iota + 1
+	VOLUME FetchOption = iota + 1
 	PULL
 
 	CONFIGS ResourceKind = iota + 1

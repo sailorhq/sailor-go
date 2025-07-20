@@ -247,7 +247,7 @@ func parseMisc(miscBytes []byte, resourceName string) (map[string]string, error)
 // manageConfig manages the config defined inside Sailor for a given namespace and app
 func (s *sailor) manageConfig(res *types.ResourceOption) error {
 	switch res.FetchDef.Fetch {
-	case types.K8S:
+	case types.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-config", s.opts.Connection.App)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
@@ -322,7 +322,7 @@ func (s *sailor) manageConfig(res *types.ResourceOption) error {
 
 func (s *sailor) manageSecrets(res *types.ResourceOption) error {
 	switch res.FetchDef.Fetch {
-	case types.K8S:
+	case types.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-secret", s.opts.Connection.App)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
@@ -400,7 +400,7 @@ func (s *sailor) manageSecrets(res *types.ResourceOption) error {
 func (s *sailor) manageMisc(res *types.ResourceOption) error {
 	resourceName := fmt.Sprintf("%s-%s", res.Def.Name, "misc")
 	switch res.FetchDef.Fetch {
-	case types.K8S:
+	case types.VOLUME:
 		// check if file is present in the path
 		fileName := fmt.Sprintf("%s-%s", s.opts.Connection.App, resourceName)
 		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
