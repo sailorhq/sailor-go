@@ -41,7 +41,7 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./test",
+					Path: "./_tests",
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -75,7 +75,7 @@ func TestVolumeConfig(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./test",
+					Path: "./_tests",
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -109,7 +109,7 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./test",
+					Path: "./_tests",
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -160,7 +160,7 @@ func TestVolumeSecret(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.SECRETS,
-					Path: "./test",
+					Path: "./_tests",
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -186,5 +186,40 @@ func TestVolumeSecret(t *testing.T) {
 	if err != nil || v != "shhh..." {
 		t.Error("wrong value for app key")
 		return
+	}
+}
+
+func TestVolumeMisc(t *testing.T) {
+	err := Initialize(opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.MISC,
+					Path: "./_tests",
+					Name: "ash",
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			Addr:          "http://localhost:7766",
+			Namespace:     "test",
+			App:           "test4",
+			AccessKey:     "",
+			SecretKey:     "",
+			SocketTimeout: time.Second * 5,
+		},
+	})
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	s := Instance()
+	v, err := s.GetMisc("ash")
+	if err != nil || v != "misc resource" {
+		t.Error("wrong value for misc resource: ash")
 	}
 }
