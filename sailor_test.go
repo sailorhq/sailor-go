@@ -2,11 +2,16 @@ package sailor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/sailorhq/sailor-go/pkg/opts"
+)
+
+const (
+	testFolder = "./_tests"
 )
 
 func TestPullConfigDefault(t *testing.T) {
@@ -41,7 +46,7 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./_tests",
+					Path: testFolder,
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -75,7 +80,7 @@ func TestVolumeConfig(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./_tests",
+					Path: testFolder,
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -109,7 +114,7 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.CONFIGS,
-					Path: "./_tests",
+					Path: testFolder,
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -138,8 +143,10 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 
 	t.Log("changing test2-config contents!")
 
+	testConfigFile := fmt.Sprintf("%s/test2-config", testFolder)
+
 	newContent, _ := json.Marshal(map[string]any{"_content": `{"app": 1}`})
-	os.WriteFile("test/test2-config", newContent, 0655)
+	os.WriteFile(testConfigFile, newContent, 0655)
 	time.Sleep(1 * time.Second)
 
 	s = Instance()
@@ -151,7 +158,7 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 
 	t.Log("reversing test2-config contents!")
 	oldContent, _ := json.Marshal(map[string]any{"_content": `{"app": "value"}`})
-	os.WriteFile("test/test2-config", oldContent, 0655)
+	os.WriteFile(testConfigFile, oldContent, 0655)
 }
 
 func TestVolumeSecret(t *testing.T) {
@@ -160,7 +167,7 @@ func TestVolumeSecret(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.SECRETS,
-					Path: "./_tests",
+					Path: testFolder,
 				},
 				FetchDef: opts.FetchDefinition{
 					Fetch: opts.VOLUME,
@@ -195,7 +202,7 @@ func TestVolumeMisc(t *testing.T) {
 			{
 				Def: opts.ResourceDefinition{
 					Kind: opts.MISC,
-					Path: "./_tests",
+					Path: testFolder,
 					Name: "ash",
 				},
 				FetchDef: opts.FetchDefinition{
