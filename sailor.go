@@ -268,7 +268,7 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 			return nil
 		}
 
-		if err := s.fetchFallback("config"); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -305,13 +305,13 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingConfig(res)
+				go s.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback("secret"); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -345,7 +345,7 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 			return nil
 		}
 
-		if err := s.fetchFallback("secret"); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -382,13 +382,13 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingConfig(res)
+				go s.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback("secret"); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -420,7 +420,7 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 			return nil
 		}
 
-		if err := s.fetchFallback(resourceName); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -462,13 +462,13 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingConfig(res)
+				go s.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback(resourceName); err != nil {
+		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -477,26 +477,24 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) fetchFallback(forKind string) error {
+func (s *sailor) fetchFallback(forKind opts.ResourceKind, resName string) error {
 	fallbackBaseURL := os.Getenv(ENV_SAILOR_FALLBACK_BASE_URL)
 	if fallbackBaseURL != "" {
-		resp, err := s.sailorClient.Get(fmt.Sprintf("%s/%s-%s.json", fallbackBaseURL, s.opts.Connection.App, forKind))
+		url := fmt.Sprintf("%s/%s-%s.sailor.fall", fallbackBaseURL, s.opts.Connection.App, forKind)
+		resp, err := s.sailorClient.Get(url)
 		if err != nil {
 			return err
 		}
 
-		configBytes, err := io.ReadAll(resp.Body)
+		resBytes, err := io.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		if err != nil {
 			return err
 		}
 
-		var config map[string]string
-		if err := json.Unmarshal(configBytes, &config); err != nil {
+		if err = s.storeRawResource(resBytes, forKind, resName); err != nil {
 			return err
 		}
-
-		s.configs.Store(config)
 
 		return nil
 	}
@@ -504,31 +502,79 @@ func (s *sailor) fetchFallback(forKind string) error {
 	return errors.New("cannot find config to serve, fallback fetch also failed")
 }
 
-func (s *sailor) keepPullingConfig(res *opts.ResourceOption) {
-	url := fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
-		s.opts.Connection.Addr,
-		s.opts.Connection.Namespace,
-		s.opts.Connection.App,
-		res.Def.Name,
-	)
+func (s *sailor) keepPullingResource(res *opts.ResourceOption) {
+	var url string
+	switch res.Def.Kind {
+	case opts.CONFIGS:
+		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/config",
+			s.opts.Connection.Addr,
+			s.opts.Connection.Namespace,
+			s.opts.Connection.App,
+		)
+	case opts.SECRETS:
+		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/secret",
+			s.opts.Connection.Addr,
+			s.opts.Connection.Namespace,
+			s.opts.Connection.App,
+		)
+	case opts.MISC:
+		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
+			s.opts.Connection.Addr,
+			s.opts.Connection.Namespace,
+			s.opts.Connection.App,
+			res.Def.Name,
+		)
+	}
 
 	resp, err := s.sailorClient.Get(url)
 	if err == nil {
 		if resp.StatusCode != http.StatusOK {
 			time.Sleep(res.FetchDef.PullInterval)
+			s.keepPullingResource(res)
 			return
 		}
 
-		miscBytes, err := io.ReadAll(resp.Body)
+		resBytes, err := io.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		if err != nil {
 			time.Sleep(res.FetchDef.PullInterval)
+			s.keepPullingResource(res)
 			return
 		}
 
+		if err = s.storeRawResource(resBytes, res.Def.Kind, res.Def.Name); err != nil {
+			time.Sleep(res.FetchDef.PullInterval)
+			s.keepPullingResource(res)
+			return
+		}
+	}
+
+	time.Sleep(res.FetchDef.PullInterval)
+	s.keepPullingResource(res)
+}
+
+func (s *sailor) storeRawResource(resBytes []byte, forKind opts.ResourceKind, resourceName string) error {
+	switch forKind {
+	case opts.CONFIGS:
+		var config map[string]any
+		if err := json.Unmarshal(resBytes, &config); err != nil {
+			// TODO :: log here!
+			return err
+		}
+
+		s.configs.Store(&config)
+	case opts.SECRETS:
+		var secret map[string]string
+		if err := json.Unmarshal(resBytes, &secret); err != nil {
+			// TODO :: log here!
+			return err
+		}
+
+		s.secrets.Store(&secret)
+	case opts.MISC:
 		oldMiscMap := s.misc.Load().(*map[string]string)
 		var miscMap = map[string]string{
-			res.Def.Name: string(miscBytes),
+			resourceName: string(resBytes),
 		}
 		if oldMiscMap == nil {
 			s.misc.Store(&miscMap)
@@ -539,6 +585,5 @@ func (s *sailor) keepPullingConfig(res *opts.ResourceOption) {
 		}
 	}
 
-	time.Sleep(res.FetchDef.PullInterval)
-	s.keepPullingConfig(res)
+	return nil
 }

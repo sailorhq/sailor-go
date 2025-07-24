@@ -2,7 +2,7 @@ package opts
 
 import "time"
 
-type ResourceKind int
+type ResourceKind string
 
 type FetchOption int
 
@@ -10,9 +10,9 @@ const (
 	VOLUME FetchOption = iota + 1
 	PULL
 
-	CONFIGS ResourceKind = iota + 1
-	SECRETS
-	MISC
+	CONFIGS ResourceKind = "config"
+	SECRETS ResourceKind = "secret"
+	MISC    ResourceKind = "misc"
 )
 
 type ConnectionOption struct {
