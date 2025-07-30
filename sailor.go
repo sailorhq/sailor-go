@@ -24,7 +24,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path"
 	"sync/atomic"
 	"time"
 
@@ -130,8 +129,7 @@ func Initialize(initOpts opts.InitOption) error {
 	secretRef := make(map[string]string)
 	consumer.secrets.Store(&secretRef)
 
-	miscRef := make(map[string]string)
-	consumer.misc.Store(&miscRef)
+	consumer.misc.Store(&[]byte{})
 
 	consumer.watcher, _ = fsnotify.NewWatcher()
 
@@ -168,9 +166,12 @@ func (s *sailor) watchForVolumeChanges() {
 	for {
 		select {
 		case event := <-consumer.watcher.Events:
-			if event.Has(fsnotify.Write) {
-				resourceName := path.Base(event.Name)
-				if wi, ok := watcherFileNameResourceMap[resourceName]; ok {
+			if event.Has(fsnotify.Chmod) || event.Has(fsnotify.Write) {
+				for _, wi := range watcherFileNameResourceMap {
+					// TODO :: we need to keep a checksum where it computes the hash
+					// and keeps it in memory for checking if the file has changed or not.
+					// If it is deployed in a volume inside K8s, this uses symlink and
+					// we don't come to know which resource has changed.
 					switch wi.kind {
 					case opts.CONFIGS:
 						configBytes, err := os.ReadFile(wi.path)
@@ -178,8 +179,8 @@ func (s *sailor) watchForVolumeChanges() {
 							log.Println("config has changed but unable to updated it due to: ", err.Error())
 							continue
 						}
-						config, err := parseConfig(configBytes)
-						if err != nil {
+						var config map[string]any
+						if err := json.Unmarshal(configBytes, &config); err != nil {
 							log.Println("config has changed but unable to parse it due to: ", err.Error())
 							continue
 						}
@@ -206,12 +207,7 @@ func (s *sailor) watchForVolumeChanges() {
 							continue
 						}
 
-						misc, err := parseMisc(miscBytes, wi.name)
-						if err != nil {
-							log.Println("misc has changed but unable to updated it due to: ", err.Error())
-							continue
-						}
-						s.misc.Store(&misc)
+						s.misc.Store(&miscBytes)
 					}
 				}
 
@@ -222,54 +218,16 @@ func (s *sailor) watchForVolumeChanges() {
 	}
 }
 
-// parseConfig parses the config bytes as per the format saved by sailor. Since we need to support
-// K8S deployment as well, we stringify the json under _content key.
-func parseConfig(configBytes []byte) (map[string]any, error) {
-	var content map[string]string
-	err := json.Unmarshal(configBytes, &content)
-	if err != nil {
-		// :goto fallback
-		return nil, err
-	}
-
-	var config map[string]any
-	if err := json.Unmarshal([]byte(content["_content"]), &config); err != nil {
-		// :goto fallback
-		return nil, err
-	}
-
-	return config, nil
-}
-
-func parseMisc(miscBytes []byte, resourceName string) (map[string]string, error) {
-	var content map[string]string
-	err := json.Unmarshal(miscBytes, &content)
-	if err != nil {
-		// go to the fallback part
-		return nil, err
-	}
-
-	oldMiscMap := consumer.misc.Load().(*map[string]string)
-	var miscMap = map[string]string{
-		resourceName: string(content["_content"]),
-	}
-	dst := maps.Clone(*oldMiscMap)
-	maps.Copy(dst, miscMap)
-
-	return dst, nil
-}
-
 // manageConfig manages the config defined inside Sailor for a given namespace and app
 func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
-		fileName := fmt.Sprintf("%s-config", s.opts.Connection.App)
-		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
+		resourcePath := fmt.Sprintf("%s/_config", res.Def.Path)
 		configBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			config, err := parseConfig(configBytes)
-			if err != nil {
+			var config map[string]any
+			if err := json.Unmarshal(configBytes, &config); err != nil {
 				// :goto fallback
 				break
 			}
@@ -277,8 +235,9 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{opts.CONFIGS, resourcePath, ""}
-			s.watcher.Add(resourcePath)
+			watcherFileNameResourceMap["_config"] = watcherInfo{opts.CONFIGS, resourcePath, ""}
+			// we watch for directory changes as volume mount swaps with symlinks
+			s.watcher.Add(res.Def.Path)
 
 			return nil
 		}
@@ -339,8 +298,7 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
-		fileName := fmt.Sprintf("%s-secret", s.opts.Connection.App)
-		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
+		resourcePath := fmt.Sprintf("%s/_secret", res.Def.Path)
 		secretBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
 			var secret map[string]string
@@ -354,8 +312,8 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{opts.SECRETS, resourcePath, ""}
-			s.watcher.Add(resourcePath)
+			watcherFileNameResourceMap["_secret"] = watcherInfo{opts.SECRETS, resourcePath, ""}
+			s.watcher.Add(res.Def.Path)
 
 			return nil
 		}
@@ -413,24 +371,18 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 }
 
 func (s *sailor) manageMisc(res *opts.ResourceOption) error {
-	resourceName := fmt.Sprintf("%s-%s", res.Def.Name, "misc")
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
-		fileName := fmt.Sprintf("%s-%s", s.opts.Connection.App, resourceName)
-		resourcePath := fmt.Sprintf("%s/%s", res.Def.Path, fileName)
+		resourcePath := fmt.Sprintf("%s/_%s", res.Def.Path, res.Def.Name)
 		miscBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			miscMap, err := parseMisc(miscBytes, res.Def.Name)
-			if err != nil {
-				return err
-			}
-			s.misc.Store(&miscMap)
+			s.misc.Store(&miscBytes)
 
 			// add watcher details
 			s.hasWatchableResource = true
-			watcherFileNameResourceMap[fileName] = watcherInfo{opts.MISC, resourcePath, res.Def.Name}
-			s.watcher.Add(resourcePath)
+			watcherFileNameResourceMap["_"+res.Def.Name] = watcherInfo{opts.MISC, resourcePath, res.Def.Name}
+			s.watcher.Add(res.Def.Path)
 
 			return nil
 		}
