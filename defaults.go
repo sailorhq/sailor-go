@@ -1,5 +1,5 @@
 // sailor-go
-// Copyright (C) 2025 sailorhq-codekidx
+// Copyright (C) 2025 SailorHQ and Ashish Shekar (codekidX)
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
