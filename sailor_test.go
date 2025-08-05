@@ -13,15 +13,18 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-package sailor
+package sailor_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path"
 	"testing"
 	"time"
 
+	"github.com/sailorhq/sailor-go"
 	"github.com/sailorhq/sailor-go/pkg/opts"
 )
 
@@ -29,34 +32,87 @@ const (
 	testFolder = "./_tests"
 )
 
-func TestPullConfigDefault(t *testing.T) {
-	err := Initialize(opts.InitOption{
+func createTestFile(data any, name string) {
+	filePath := path.Join(testFolder, name)
+	b, _ := json.Marshal(&data)
+	os.WriteFile(filePath, b, 0755)
+}
+
+func removeTestFile(name string) {
+	filePath := path.Join(testFolder, name)
+	os.Remove(filePath)
+}
+
+func TestNewConsumerNoResources(t *testing.T) {
+	_, err := sailor.NewConsumer[any, any](opts.InitOption{})
+
+	if !errors.Is(err, sailor.ErrNewConsumerEmptyResourceList) {
+		t.Error(err)
+	}
+}
+
+func TestNewConsumerInvalidConnectionOption(t *testing.T) {
+	initOpts := opts.InitOption{
 		Resources: []opts.ResourceOption{
-			ConfigPullDefault(),
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
 		},
-		Connection: &opts.ConnectionOption{
-			Addr:          "http://localhost:7766",
-			Namespace:     "sailor",
-			App:           "backend-core",
-			AccessKey:     "",
-			SecretKey:     "",
-			SocketTimeout: time.Second * 5,
-		},
-	})
-	if err != nil {
+	}
+	// no connection options
+	_, err := sailor.NewConsumer[any, any](initOpts)
+	if !errors.Is(err, sailor.ErrNewConsumerNoSailorURL) {
 		t.Error(err)
 		return
 	}
 
-	s := Instance()
-	v, err := s.Get("app")
-	if err != nil || v.(string) != "something" {
-		t.Error("wrong value for app key")
+	var connectionOption = opts.ConnectionOption{
+		Addr: "addr",
+	}
+	initOpts.Connection = &connectionOption
+
+	// only addr given
+	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorNS) {
+		t.Error(err)
+		return
+	}
+
+	connectionOption.Namespace = "ns"
+	// only addr and ns given
+	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorApp) {
+		t.Error(err)
+		return
+	}
+
+	connectionOption.App = "app"
+	// only addr, ns & app given
+	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorAccessKey) {
+		t.Error(err)
+		return
+	}
+
+	connectionOption.AccessKey = "ak"
+	// only addr, ns, app & access key given
+	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorSecretKey) {
+		t.Error(err)
+		return
+	}
+
+	connectionOption.SecretKey = "sk"
+	// all options given, should not error
+	if _, err := sailor.NewConsumer[any, any](initOpts); err != nil {
+		t.Error(err)
 	}
 }
 
-func TestVolumeConfigKeyNotPresent(t *testing.T) {
-	err := Initialize(opts.InitOption{
+func TestVolumeConfigFileNotPresent(t *testing.T) {
+	consumer, err := sailor.NewConsumer[any, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -72,25 +128,35 @@ func TestVolumeConfigKeyNotPresent(t *testing.T) {
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test",
-			AccessKey:     "",
-			SecretKey:     "",
+			AccessKey:     "ak",
+			SecretKey:     "sk",
 			SocketTimeout: time.Second * 5,
 		},
 	})
+	// when provided all options NewConsumer function should not error
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	s := Instance()
-	_, err = s.Get("pop")
-	if err == nil {
-		t.Error("should throw an error because pop key is not present")
+	// this should error because there is no file named _config
+	// inside the testFolder, it should try calling fallback and
+	// fallback error should be returned
+	if !errors.Is(consumer.Start(), sailor.ErrFetchFallbackFailed) {
+		t.Error(err)
+		return
 	}
 }
 
-func TestVolumeConfig(t *testing.T) {
-	err := Initialize(opts.InitOption{
+func TestVolumeConfigWrongType(t *testing.T) {
+	type DummyConfig struct {
+		App string `json:"app"`
+	}
+
+	createTestFile([]string{"yo", "lo"}, "_config")
+	defer removeTestFile("_config")
+
+	consumer, err := sailor.NewConsumer[DummyConfig, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -106,25 +172,34 @@ func TestVolumeConfig(t *testing.T) {
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
 			App:           "test",
-			AccessKey:     "",
-			SecretKey:     "",
+			AccessKey:     "ak",
+			SecretKey:     "sk",
 			SocketTimeout: time.Second * 5,
 		},
 	})
+
+	// when provided all options NewConsumer function should not error
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	s := Instance()
-	v, err := s.Get("app")
-	if err != nil || v.(string) != "value" {
-		t.Error("wrong value for app key")
+	// this should throw an error because the json parsing failed
+	if consumer.Start() == nil {
+		t.Error(err)
 	}
 }
 
-func TestVolumeConfigWithWatcherChange(t *testing.T) {
-	err := Initialize(opts.InitOption{
+func TestVolumeConfigCorrectData(t *testing.T) {
+	type DummyConfig struct {
+		App string `json:"app"`
+	}
+
+	app := "sailor-sailing-the-containers"
+	createTestFile(DummyConfig{App: app}, "_config")
+	defer removeTestFile("_config")
+
+	consumer, err := sailor.NewConsumer[DummyConfig, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -139,109 +214,34 @@ func TestVolumeConfigWithWatcherChange(t *testing.T) {
 		Connection: &opts.ConnectionOption{
 			Addr:          "http://localhost:7766",
 			Namespace:     "test",
-			App:           "test2",
-			AccessKey:     "",
-			SecretKey:     "",
+			App:           "test",
+			AccessKey:     "ak",
+			SecretKey:     "sk",
 			SocketTimeout: time.Second * 5,
 		},
 	})
+
+	// when provided all options NewConsumer function should not error
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	s := Instance()
-	v, err := s.Get("app")
-	if err != nil || v.(string) != "value" {
-		t.Error("wrong value for app key")
-	}
-
-	t.Log("changing test2-config contents!")
-
-	testConfigFile := fmt.Sprintf("%s/test2-config", testFolder)
-
-	newContent, _ := json.Marshal(map[string]any{"_content": `{"app": 1}`})
-	os.WriteFile(testConfigFile, newContent, 0655)
-	time.Sleep(1 * time.Second)
-
-	s = Instance()
-	v, err = s.Get("app")
-	if err != nil || v.(float64) != 1 {
-		t.Error("wrong value for app key")
+	// this should not return an error because now the data is of correct
+	// type
+	if err = consumer.Start(); err != nil {
+		t.Error(err)
 		return
 	}
 
-	t.Log("reversing test2-config contents!")
-	oldContent, _ := json.Marshal(map[string]any{"_content": `{"app": "value"}`})
-	os.WriteFile(testConfigFile, oldContent, 0655)
-}
-
-func TestVolumeSecret(t *testing.T) {
-	err := Initialize(opts.InitOption{
-		Resources: []opts.ResourceOption{
-			{
-				Def: opts.ResourceDefinition{
-					Kind: opts.SECRETS,
-					Path: testFolder,
-				},
-				FetchDef: opts.FetchDefinition{
-					Fetch: opts.VOLUME,
-				},
-			},
-		},
-		Connection: &opts.ConnectionOption{
-			Addr:          "http://localhost:7766",
-			Namespace:     "test",
-			App:           "test3",
-			AccessKey:     "",
-			SecretKey:     "",
-			SocketTimeout: time.Second * 5,
-		},
-	})
+	// this should not throw an error because it is of correct type
+	config, err := consumer.Get()
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	s := Instance()
-	v, err := s.GetSecret("secret")
-	if err != nil || v != "shhh..." {
-		t.Error("wrong value for app key")
-		return
-	}
-}
-
-func TestVolumeMisc(t *testing.T) {
-	err := Initialize(opts.InitOption{
-		Resources: []opts.ResourceOption{
-			{
-				Def: opts.ResourceDefinition{
-					Kind: opts.MISC,
-					Path: testFolder,
-					Name: "ash",
-				},
-				FetchDef: opts.FetchDefinition{
-					Fetch: opts.VOLUME,
-				},
-			},
-		},
-		Connection: &opts.ConnectionOption{
-			Addr:          "http://localhost:7766",
-			Namespace:     "test",
-			App:           "test4",
-			AccessKey:     "",
-			SecretKey:     "",
-			SocketTimeout: time.Second * 5,
-		},
-	})
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	s := Instance()
-	v, err := s.GetMisc("ash")
-	if err != nil || v != "misc resource" {
-		t.Error("wrong value for misc resource: ash")
+	if config.App != app {
+		t.Error(fmt.Errorf("required %s got %s", app, config.App))
 	}
 }

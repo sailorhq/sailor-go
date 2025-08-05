@@ -17,7 +17,6 @@ package sailor
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -41,21 +40,21 @@ const (
 	ENV_SAILOR_FALLBACK_BASE_URL = "SAILOR_FALLBACK_BASE_URL"
 )
 
-type sailor struct {
+type Consumer[C any, S any] struct {
 	opts opts.InitOption
 
 	sailorClient *http.Client
 
 	// configs are values which represent ConfigMap or AppConfig
-	configs atomic.Value
+	configs atomic.Pointer[C]
 
 	// secrets corresponds to secret resource for this app inside the namespace
-	secrets atomic.Value
+	secrets atomic.Pointer[S]
 
 	// misc corresponds to misc resource which can be any text based file format
 	// @NOTE: the caller consuming this resource must know the type and how to
 	// make sense of them
-	misc atomic.Value
+	misc atomic.Pointer[map[string][]byte]
 
 	// watcher is a file watcher for any watchable resource defined during
 	// connection with a ResourceOption
@@ -64,10 +63,6 @@ type sailor struct {
 	// hasWatchableResource says to the consumer to init watcher only if
 	// there is any watchable resource defined, for example k8s ConfigMap
 	hasWatchableResource bool
-}
-
-var consumer = sailor{
-	sailorClient: &http.Client{},
 }
 
 // watcherInfo is a union of the resource which needs to be watched
@@ -87,13 +82,21 @@ type watcherInfo struct {
 // @value = metadata of the value
 var watcherFileNameResourceMap = map[string]watcherInfo{}
 
-// Initialize function initializes the sailor consumer with the given ResourceOption(s).
+// NewConsumer function initializes the sailor consumer with the given ResourceOption(s).
+// where:
+//
+//	C = type of the config which is used while binding.
+//	S = type of secret which is used while binding. Note that the secrets are always
+//	    of type map[string]string it is included in this method only for readability
+//	    and ease of use.
+//
 // If the ResourceOption(s) are empty, sailor doesn't consume anything.
 // You can either provied ConnectionParam through `opts` or through ENV variables.
 // If both of them are empty, sailor doesn't consume anything.
-func Initialize(initOpts opts.InitOption) error {
+func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error) {
+	var consumer Consumer[C, S]
 	if len(initOpts.Resources) == 0 {
-		return errors.New("no resources to manage, pass Resources inside opts")
+		return nil, ErrNewConsumerEmptyResourceList
 	}
 
 	if initOpts.Connection == nil {
@@ -101,51 +104,69 @@ func Initialize(initOpts opts.InitOption) error {
 		// we try getting all the necessary details from env
 
 		if conn.Addr = os.Getenv(ENV_SAILOR_URL); conn.Addr == "" {
-			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_URL or set Connection in SailorOpts")
+			return nil, ErrNewConsumerNoSailorURL
 		}
 
 		if conn.Namespace = os.Getenv(ENV_SAILOR_NS); conn.Namespace == "" {
-			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_NS or set Connection in SailorOpts")
+			return nil, ErrNewConsumerNoSailorNS
 		}
 
 		if conn.App = os.Getenv(ENV_SAILOR_APP); conn.App == "" {
-			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_APP or set Connection in SailorOpts")
+			return nil, ErrNewConsumerNoSailorApp
 		}
 
 		if conn.AccessKey = os.Getenv(ENV_SAILOR_ACCESS_KEY); conn.AccessKey == "" {
-			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_ACCESS_KEY or set Connection in SailorOpts")
+			return nil, ErrNewConsumerNoSailorAccessKey
 		}
 
 		if conn.SecretKey = os.Getenv(ENV_SAILOR_SECRET_KEY); conn.SecretKey == "" {
-			return errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_SECRET_KEY or set Connection in SailorOpts")
+			return nil, ErrNewConsumerNoSailorSecretKey
 		}
 	} else {
+		if initOpts.Connection.Addr == "" {
+			return nil, ErrNewConsumerNoSailorURL
+		}
+
+		if initOpts.Connection.Namespace == "" {
+			return nil, ErrNewConsumerNoSailorNS
+		}
+
+		if initOpts.Connection.App == "" {
+			return nil, ErrNewConsumerNoSailorApp
+		}
+
+		if initOpts.Connection.AccessKey == "" {
+			return nil, ErrNewConsumerNoSailorAccessKey
+		}
+
+		if initOpts.Connection.SecretKey == "" {
+			return nil, ErrNewConsumerNoSailorSecretKey
+		}
 		consumer.opts = initOpts
 	}
 
-	configRef := make(map[string]any)
-	consumer.configs.Store(&configRef)
+	return &consumer, nil
+}
 
-	secretRef := make(map[string]string)
-	consumer.secrets.Store(&secretRef)
+func (c *Consumer[C, S]) Start() error {
+	// TODO :: check if this is needed and if we can use atomic.Pointer here as well
+	c.misc.Store(&map[string][]byte{})
 
-	consumer.misc.Store(&[]byte{})
-
-	consumer.watcher, _ = fsnotify.NewWatcher()
+	c.watcher, _ = fsnotify.NewWatcher()
 
 	// we will check what resources are required and how to manage them
-	for _, res := range initOpts.Resources {
+	for _, res := range c.opts.Resources {
 		switch res.Def.Kind {
 		case opts.CONFIGS:
-			if err := consumer.manageConfig(&res); err != nil {
+			if err := c.manageConfig(&res); err != nil {
 				return err
 			}
 		case opts.SECRETS:
-			if err := consumer.manageSecrets(&res); err != nil {
+			if err := c.manageSecrets(&res); err != nil {
 				return err
 			}
 		case opts.MISC:
-			if err := consumer.manageMisc(&res); err != nil {
+			if err := c.manageMisc(&res); err != nil {
 				return err
 			}
 		}
@@ -153,8 +174,8 @@ func Initialize(initOpts opts.InitOption) error {
 
 	// this means that there are volume mounted resources which needs to be watched
 	// for changes
-	if consumer.hasWatchableResource {
-		go consumer.watchForVolumeChanges()
+	if c.hasWatchableResource {
+		go c.watchForVolumeChanges()
 	}
 
 	return nil
@@ -162,10 +183,10 @@ func Initialize(initOpts opts.InitOption) error {
 
 // watchForVolumeChanges checks for all the paths mentioned in ResourceOption(s)
 // which is of kind: Volume.
-func (s *sailor) watchForVolumeChanges() {
+func (c *Consumer[C, S]) watchForVolumeChanges() {
 	for {
 		select {
-		case event := <-consumer.watcher.Events:
+		case event := <-c.watcher.Events:
 			if event.Has(fsnotify.Chmod) || event.Has(fsnotify.Write) {
 				for _, wi := range watcherFileNameResourceMap {
 					// TODO :: we need to keep a checksum where it computes the hash
@@ -179,13 +200,11 @@ func (s *sailor) watchForVolumeChanges() {
 							log.Println("config has changed but unable to updated it due to: ", err.Error())
 							continue
 						}
-						var config map[string]any
-						if err := json.Unmarshal(configBytes, &config); err != nil {
-							log.Println("config has changed but unable to parse it due to: ", err.Error())
+
+						if err := c.storeRawResource(configBytes, wi.kind, wi.name); err != nil {
+							log.Println("config has changed but unable to store it due to: ", err.Error())
 							continue
 						}
-
-						s.configs.Store(&config)
 					case opts.SECRETS:
 						secretBytes, err := os.ReadFile(wi.path)
 						if err != nil {
@@ -193,13 +212,10 @@ func (s *sailor) watchForVolumeChanges() {
 							continue
 						}
 
-						var secret map[string]string
-						if err := json.Unmarshal(secretBytes, &secret); err != nil {
-							log.Println("secret has changed but unable to parse it due to: ", err.Error())
+						if err := c.storeRawResource(secretBytes, wi.kind, wi.name); err != nil {
+							log.Println("secrets has changed but unable to store it due to: ", err.Error())
 							continue
 						}
-
-						s.secrets.Store(&secret)
 					case opts.MISC:
 						miscBytes, err := os.ReadFile(wi.path)
 						if err != nil {
@@ -207,42 +223,42 @@ func (s *sailor) watchForVolumeChanges() {
 							continue
 						}
 
-						s.misc.Store(&miscBytes)
+						if err := c.storeRawResource(miscBytes, wi.kind, wi.name); err != nil {
+							log.Println("misc has changed but unable to store it due to: ", err.Error())
+							continue
+						}
 					}
 				}
 
 			}
-		case err := <-consumer.watcher.Errors:
+		case err := <-c.watcher.Errors:
 			log.Println(err)
 		}
 	}
 }
 
 // manageConfig manages the config defined inside Sailor for a given namespace and app
-func (s *sailor) manageConfig(res *opts.ResourceOption) error {
+func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
 		resourcePath := fmt.Sprintf("%s/_config", res.Def.Path)
 		configBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			var config map[string]any
-			if err := json.Unmarshal(configBytes, &config); err != nil {
-				// :goto fallback
-				break
+			if err := c.storeRawResource(configBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
 			}
-			s.configs.Store(&config)
 
 			// add watcher details
-			s.hasWatchableResource = true
+			c.hasWatchableResource = true
 			watcherFileNameResourceMap["_config"] = watcherInfo{opts.CONFIGS, resourcePath, ""}
 			// we watch for directory changes as volume mount swaps with symlinks
-			s.watcher.Add(res.Def.Path)
+			c.watcher.Add(res.Def.Path)
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -250,12 +266,12 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/config",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 		)
 
-		resp, err := s.sailorClient.Get(url)
+		resp, err := c.sailorClient.Get(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// :goto fallback
@@ -269,23 +285,19 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 				break
 			}
 
-			var config map[string]any
-			if err := json.Unmarshal(configBytes, &config); err != nil {
-				// :goto fallback
-				break
+			if err := c.storeRawResource(configBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
 			}
-
-			s.configs.Store(&config)
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingResource(res)
+				go c.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -294,31 +306,31 @@ func (s *sailor) manageConfig(res *opts.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
+func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
 		resourcePath := fmt.Sprintf("%s/_secret", res.Def.Path)
 		secretBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			var secret map[string]string
+			var secret S
 			err = json.Unmarshal(secretBytes, &secret)
 			if err != nil {
 				// go to the fallback part
 				break
 			}
 
-			s.secrets.Store(&secret)
+			c.secrets.Store(&secret)
 
 			// add watcher details
-			s.hasWatchableResource = true
+			c.hasWatchableResource = true
 			watcherFileNameResourceMap["_secret"] = watcherInfo{opts.SECRETS, resourcePath, ""}
-			s.watcher.Add(res.Def.Path)
+			c.watcher.Add(res.Def.Path)
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -326,12 +338,12 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/secret",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 		)
 
-		resp, err := s.sailorClient.Get(url)
+		resp, err := c.sailorClient.Get(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
@@ -345,23 +357,19 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 				break
 			}
 
-			var secret map[string]string
-			if err := json.Unmarshal(secretBytes, &secret); err != nil {
-				// goto fallback
-				break
+			if err := c.storeRawResource(secretBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
 			}
-
-			s.secrets.Store(&secret)
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingResource(res)
+				go c.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -370,24 +378,26 @@ func (s *sailor) manageSecrets(res *opts.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) manageMisc(res *opts.ResourceOption) error {
+func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 	switch res.FetchDef.Fetch {
 	case opts.VOLUME:
 		// check if file is present in the path
 		resourcePath := fmt.Sprintf("%s/_%s", res.Def.Path, res.Def.Name)
 		miscBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			s.misc.Store(&miscBytes)
+			if err := c.storeRawResource(miscBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
+			}
 
 			// add watcher details
-			s.hasWatchableResource = true
+			c.hasWatchableResource = true
 			watcherFileNameResourceMap["_"+res.Def.Name] = watcherInfo{opts.MISC, resourcePath, res.Def.Name}
-			s.watcher.Add(res.Def.Path)
+			c.watcher.Add(res.Def.Path)
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -395,13 +405,13 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 	case opts.PULL:
 		// we will pull for the latest config with version
 		url := fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 			res.Def.Name,
 		)
 
-		resp, err := s.sailorClient.Get(url)
+		resp, err := c.sailorClient.Get(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
@@ -415,27 +425,19 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 				break
 			}
 
-			oldMiscMap := s.misc.Load().(*map[string]string)
-			var miscMap = map[string]string{
-				res.Def.Name: string(miscBytes),
-			}
-			if oldMiscMap == nil {
-				s.misc.Store(&miscMap)
-			} else {
-				dst := maps.Clone(*oldMiscMap)
-				maps.Copy(dst, miscMap)
-				s.misc.Store(&dst)
+			if err := c.storeRawResource(miscBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
 			}
 
 			// time to check if we want to pull the resource in background thread
 			if !res.FetchDef.Once {
-				go s.keepPullingResource(res)
+				go c.keepPullingResource(res)
 			}
 
 			return nil
 		}
 
-		if err := s.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
+		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
 
@@ -444,11 +446,11 @@ func (s *sailor) manageMisc(res *opts.ResourceOption) error {
 	return nil
 }
 
-func (s *sailor) fetchFallback(forKind opts.ResourceKind, resName string) error {
+func (c *Consumer[C, S]) fetchFallback(forKind opts.ResourceKind, resName string) error {
 	fallbackBaseURL := os.Getenv(ENV_SAILOR_FALLBACK_BASE_URL)
 	if fallbackBaseURL != "" {
-		url := fmt.Sprintf("%s/%s-%s.sailor.fall", fallbackBaseURL, s.opts.Connection.App, forKind)
-		resp, err := s.sailorClient.Get(url)
+		url := fmt.Sprintf("%s/%s-%s.sailor.fall", fallbackBaseURL, c.opts.Connection.App, forKind)
+		resp, err := c.sailorClient.Get(url)
 		if err != nil {
 			return err
 		}
@@ -459,45 +461,45 @@ func (s *sailor) fetchFallback(forKind opts.ResourceKind, resName string) error 
 			return err
 		}
 
-		if err = s.storeRawResource(resBytes, forKind, resName); err != nil {
+		if err = c.storeRawResource(resBytes, forKind, resName); err != nil {
 			return err
 		}
 
 		return nil
 	}
 
-	return errors.New("cannot find config to serve, fallback fetch also failed")
+	return ErrFetchFallbackFailed
 }
 
-func (s *sailor) keepPullingResource(res *opts.ResourceOption) {
+func (c *Consumer[C, S]) keepPullingResource(res *opts.ResourceOption) {
 	var url string
 	switch res.Def.Kind {
 	case opts.CONFIGS:
 		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/config",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 		)
 	case opts.SECRETS:
 		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/secret",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 		)
 	case opts.MISC:
 		url = fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
-			s.opts.Connection.Addr,
-			s.opts.Connection.Namespace,
-			s.opts.Connection.App,
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
 			res.Def.Name,
 		)
 	}
 
-	resp, err := s.sailorClient.Get(url)
+	resp, err := c.sailorClient.Get(url)
 	if err == nil {
 		if resp.StatusCode != http.StatusOK {
 			time.Sleep(res.FetchDef.PullInterval)
-			s.keepPullingResource(res)
+			c.keepPullingResource(res)
 			return
 		}
 
@@ -505,52 +507,76 @@ func (s *sailor) keepPullingResource(res *opts.ResourceOption) {
 		defer resp.Body.Close()
 		if err != nil {
 			time.Sleep(res.FetchDef.PullInterval)
-			s.keepPullingResource(res)
+			c.keepPullingResource(res)
 			return
 		}
 
-		if err = s.storeRawResource(resBytes, res.Def.Kind, res.Def.Name); err != nil {
+		if err = c.storeRawResource(resBytes, res.Def.Kind, res.Def.Name); err != nil {
 			time.Sleep(res.FetchDef.PullInterval)
-			s.keepPullingResource(res)
+			c.keepPullingResource(res)
 			return
 		}
 	}
 
 	time.Sleep(res.FetchDef.PullInterval)
-	s.keepPullingResource(res)
+	c.keepPullingResource(res)
 }
 
-func (s *sailor) storeRawResource(resBytes []byte, forKind opts.ResourceKind, resourceName string) error {
+func (c *Consumer[C, S]) storeRawResource(resBytes []byte, forKind opts.ResourceKind, resourceName string) error {
 	switch forKind {
 	case opts.CONFIGS:
-		var config map[string]any
+		var config C
 		if err := json.Unmarshal(resBytes, &config); err != nil {
 			// TODO :: log here!
 			return err
 		}
 
-		s.configs.Store(&config)
+		c.configs.Store(&config)
 	case opts.SECRETS:
-		var secret map[string]string
+		var secret S
 		if err := json.Unmarshal(resBytes, &secret); err != nil {
 			// TODO :: log here!
 			return err
 		}
 
-		s.secrets.Store(&secret)
+		c.secrets.Store(&secret)
 	case opts.MISC:
-		oldMiscMap := s.misc.Load().(*map[string]string)
-		var miscMap = map[string]string{
-			resourceName: string(resBytes),
-		}
-		if oldMiscMap == nil {
-			s.misc.Store(&miscMap)
-		} else {
-			dst := maps.Clone(*oldMiscMap)
-			maps.Copy(dst, miscMap)
-			s.misc.Store(&dst)
-		}
+		miscCopy := maps.Clone(*c.misc.Load())
+		miscCopy[resourceName] = resBytes
+		c.misc.Store(&miscCopy)
 	}
 
 	return nil
+}
+
+// Get returns the current configuration
+func (c *Consumer[C, S]) Get() (C, error) {
+	configPtr := c.configs.Load()
+	if configPtr == nil {
+		var zero C
+		return zero, ErrConfigsNotLoaded
+	}
+
+	return *configPtr, nil
+}
+
+// Get returns the current secrets
+func (c *Consumer[C, S]) GetSecret() (S, error) {
+	secretPtr := c.secrets.Load()
+	if secretPtr == nil {
+		var zero S
+		return zero, ErrSecretsNotLoaded
+	}
+
+	return *secretPtr, nil
+}
+
+// Get misc resource bytes by name
+func (c *Consumer[C, S]) GetMisc(name string) ([]byte, error) {
+	miscMap := *c.misc.Load()
+	if _, ok := miscMap[name]; !ok {
+		return []byte{}, ErrMiscNotLoaded
+	}
+
+	return miscMap[name], nil
 }
