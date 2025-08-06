@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/sailorhq/sailor-go/pkg/opts"
+	"github.com/sailorhq/sailor/pkg/vault"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -313,14 +314,9 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 		resourcePath := fmt.Sprintf("%s/_secret", res.Def.Path)
 		secretBytes, err := os.ReadFile(resourcePath)
 		if err == nil {
-			var secret S
-			err = json.Unmarshal(secretBytes, &secret)
-			if err != nil {
-				// go to the fallback part
-				break
+			if err := c.storeRawResource(secretBytes, res.Def.Kind, res.Def.Name); err != nil {
+				return err
 			}
-
-			c.secrets.Store(&secret)
 
 			// add watcher details
 			c.hasWatchableResource = true
@@ -533,13 +529,41 @@ func (c *Consumer[C, S]) storeRawResource(resBytes []byte, forKind opts.Resource
 
 		c.configs.Store(&config)
 	case opts.SECRETS:
-		var secret S
-		if err := json.Unmarshal(resBytes, &secret); err != nil {
-			// TODO :: log here!
+		var encSecrets map[string]vault.SecretRecord
+		if err := json.Unmarshal(resBytes, &encSecrets); err != nil {
 			return err
 		}
 
-		c.secrets.Store(&secret)
+		kek, err := vault.DeriveKEK(c.opts.Connection.SecretKey, []byte(c.opts.Connection.AccessKey))
+		if err != nil {
+			return err
+		}
+
+		var interimSecrets = make(map[string]string, len(encSecrets))
+		for k, ev := range encSecrets {
+			dek, err := vault.DecryptDEK(ev.EncryptedDEK, kek)
+			if err != nil {
+				return err
+			}
+			v, err := vault.DecryptWithDEK(ev.EncryptedSecret, dek)
+			if err != nil {
+				return err
+			}
+
+			interimSecrets[k] = v
+		}
+
+		b, err := json.Marshal(&interimSecrets)
+		if err != nil {
+			return err
+		}
+
+		var secrets S
+		if err := json.Unmarshal(b, &secrets); err != nil {
+			return err
+		}
+
+		c.secrets.Store(&secrets)
 	case opts.MISC:
 		miscCopy := maps.Clone(*c.misc.Load())
 		miscCopy[resourceName] = resBytes
