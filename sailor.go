@@ -123,6 +123,9 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 		if conn.SecretKey = os.Getenv(ENV_SAILOR_SECRET_KEY); conn.SecretKey == "" {
 			return nil, ErrNewConsumerNoSailorSecretKey
 		}
+
+		initOpts.Connection = &conn
+		consumer.opts = initOpts
 	} else {
 		if initOpts.Connection.Addr == "" {
 			return nil, ErrNewConsumerNoSailorURL
@@ -189,6 +192,12 @@ func (c *Consumer[C, S]) watchForVolumeChanges() {
 		select {
 		case event := <-c.watcher.Events:
 			if event.Has(fsnotify.Chmod) || event.Has(fsnotify.Write) {
+				log.Println("[sailor] got a file modification event")
+				// incase of CHMOD event we will wait for symlinking to happen in k8s environment
+				// since we are not in an hurry to update we will wait for a second and be
+				// consistent instead
+				time.Sleep(1 * time.Second)
+
 				for _, wi := range watcherFileNameResourceMap {
 					// TODO :: we need to keep a checksum where it computes the hash
 					// and keeps it in memory for checking if the file has changed or not.
@@ -198,39 +207,40 @@ func (c *Consumer[C, S]) watchForVolumeChanges() {
 					case opts.CONFIGS:
 						configBytes, err := os.ReadFile(wi.path)
 						if err != nil {
-							log.Println("config has changed but unable to updated it due to: ", err.Error())
+							log.Println("[sailor] config has changed but unable to updated it due to: ", err.Error())
 							continue
 						}
 
 						if err := c.storeRawResource(configBytes, wi.kind, wi.name); err != nil {
-							log.Println("config has changed but unable to store it due to: ", err.Error())
+							log.Println("[sailor] config has changed but unable to store it due to: ", err.Error())
 							continue
 						}
 					case opts.SECRETS:
 						secretBytes, err := os.ReadFile(wi.path)
 						if err != nil {
-							log.Println("secrets has changed but unable to updated it due to: ", err.Error())
+							log.Println("[sailor] secrets has changed but unable to updated it due to: ", err.Error())
 							continue
 						}
 
 						if err := c.storeRawResource(secretBytes, wi.kind, wi.name); err != nil {
-							log.Println("secrets has changed but unable to store it due to: ", err.Error())
+							log.Println("[sailor] secrets has changed but unable to store it due to: ", err.Error())
 							continue
 						}
 					case opts.MISC:
 						miscBytes, err := os.ReadFile(wi.path)
 						if err != nil {
-							log.Println("misc has changed but unable to updated it due to: ", err.Error())
+							log.Println("[sailor] misc has changed but unable to updated it due to: ", err.Error())
 							continue
 						}
 
 						if err := c.storeRawResource(miscBytes, wi.kind, wi.name); err != nil {
-							log.Println("misc has changed but unable to store it due to: ", err.Error())
+							log.Println("[sailor] misc has changed but unable to store it due to: ", err.Error())
 							continue
 						}
 					}
 				}
 
+				log.Println("[sailor] processed watchable resources")
 			}
 		case err := <-c.watcher.Errors:
 			log.Println(err)
