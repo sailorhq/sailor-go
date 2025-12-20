@@ -46,6 +46,9 @@ type InitOption struct {
 
 	// Resources defines what all resources does the Sailor Client need to manage
 	Resources []ResourceOption
+
+	// Watch flag toggles the watcher feature inside Sailor Client
+	Watch *bool
 }
 
 type ResourceDefinition struct {

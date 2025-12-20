@@ -22,7 +22,9 @@ import (
 	"log"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -98,6 +100,12 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 	var consumer Consumer[C, S]
 	if len(initOpts.Resources) == 0 {
 		return nil, ErrNewConsumerEmptyResourceList
+	}
+
+	// if watch option is not provided we by default watch for resource changes
+	if initOpts.Watch == nil {
+		watch := true
+		initOpts.Watch = &watch
 	}
 
 	if initOpts.Connection == nil {
@@ -197,8 +205,8 @@ func (c *Consumer[C, S]) Start() error {
 	}
 
 	// this means that there are volume mounted resources which needs to be watched
-	// for changes
-	if c.hasWatchableResource {
+	// for changes and watching is allowed by the developer
+	if c.hasWatchableResource && *c.opts.Watch {
 		go c.watchForVolumeChanges()
 	}
 
