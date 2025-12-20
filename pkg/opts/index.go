@@ -31,6 +31,7 @@ const (
 )
 
 type ConnectionOption struct {
+	URI           string
 	Addr          string
 	Namespace     string
 	App           string

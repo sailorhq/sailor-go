@@ -28,4 +28,6 @@ var (
 	ErrConfigsNotLoaded             = errors.New("configs are not loaded")
 	ErrSecretsNotLoaded             = errors.New("secrets are not loaded")
 	ErrMiscNotLoaded                = errors.New("misc resource are not loaded")
+	ErrInvalidURIPrefix             = errors.New("invalid sailor URI prefix")
+	ErrMissingURIPathComponents     = errors.New("either ns or app missing from URI")
 )

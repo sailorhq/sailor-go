@@ -13,7 +13,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-package sailor_test
+package sailor
 
 import (
 	"encoding/json"
@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailorhq/sailor-go"
 	"github.com/sailorhq/sailor-go/pkg/opts"
 )
 
@@ -44,9 +43,9 @@ func removeTestFile(name string) {
 }
 
 func TestNewConsumerNoResources(t *testing.T) {
-	_, err := sailor.NewConsumer[any, any](opts.InitOption{})
+	_, err := NewConsumer[any, any](opts.InitOption{})
 
-	if !errors.Is(err, sailor.ErrNewConsumerEmptyResourceList) {
+	if !errors.Is(err, ErrNewConsumerEmptyResourceList) {
 		t.Error(err)
 	}
 }
@@ -66,8 +65,8 @@ func TestNewConsumerInvalidConnectionOption(t *testing.T) {
 		},
 	}
 	// no connection options
-	_, err := sailor.NewConsumer[any, any](initOpts)
-	if !errors.Is(err, sailor.ErrNewConsumerNoSailorURL) {
+	_, err := NewConsumer[any, any](initOpts)
+	if !errors.Is(err, ErrNewConsumerNoSailorURL) {
 		t.Error(err)
 		return
 	}
@@ -78,41 +77,41 @@ func TestNewConsumerInvalidConnectionOption(t *testing.T) {
 	initOpts.Connection = &connectionOption
 
 	// only addr given
-	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorNS) {
+	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorNS) {
 		t.Error(err)
 		return
 	}
 
 	connectionOption.Namespace = "ns"
 	// only addr and ns given
-	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorApp) {
+	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorApp) {
 		t.Error(err)
 		return
 	}
 
 	connectionOption.App = "app"
 	// only addr, ns & app given
-	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorAccessKey) {
+	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorAccessKey) {
 		t.Error(err)
 		return
 	}
 
 	connectionOption.AccessKey = "ak"
 	// only addr, ns, app & access key given
-	if _, err := sailor.NewConsumer[any, any](initOpts); !errors.Is(err, sailor.ErrNewConsumerNoSailorSecretKey) {
+	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorSecretKey) {
 		t.Error(err)
 		return
 	}
 
 	connectionOption.SecretKey = "sk"
 	// all options given, should not error
-	if _, err := sailor.NewConsumer[any, any](initOpts); err != nil {
+	if _, err := NewConsumer[any, any](initOpts); err != nil {
 		t.Error(err)
 	}
 }
 
 func TestVolumeConfigFileNotPresent(t *testing.T) {
-	consumer, err := sailor.NewConsumer[any, any](opts.InitOption{
+	consumer, err := NewConsumer[any, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -142,7 +141,7 @@ func TestVolumeConfigFileNotPresent(t *testing.T) {
 	// this should error because there is no file named _config
 	// inside the testFolder, it should try calling fallback and
 	// fallback error should be returned
-	if !errors.Is(consumer.Start(), sailor.ErrFetchFallbackFailed) {
+	if !errors.Is(consumer.Start(), ErrFetchFallbackFailed) {
 		t.Error(err)
 		return
 	}
@@ -156,7 +155,7 @@ func TestVolumeConfigWrongType(t *testing.T) {
 	createTestFile([]string{"yo", "lo"}, "_config")
 	defer removeTestFile("_config")
 
-	consumer, err := sailor.NewConsumer[DummyConfig, any](opts.InitOption{
+	consumer, err := NewConsumer[DummyConfig, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -199,7 +198,7 @@ func TestVolumeConfigCorrectData(t *testing.T) {
 	createTestFile(DummyConfig{App: app}, "_config")
 	defer removeTestFile("_config")
 
-	consumer, err := sailor.NewConsumer[DummyConfig, any](opts.InitOption{
+	consumer, err := NewConsumer[DummyConfig, any](opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
 				Def: opts.ResourceDefinition{
@@ -243,5 +242,33 @@ func TestVolumeConfigCorrectData(t *testing.T) {
 
 	if config.App != app {
 		t.Error(fmt.Errorf("required %s got %s", app, config.App))
+	}
+}
+
+func TestParseURI(t *testing.T) {
+	opts, err := parseURI("sailor://a:b@localhost/ns/app")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if opts.Addr != "localhost" {
+		t.Errorf("the address of the URI must be %s but got %s", "localhost", opts.Addr)
+	}
+
+	if opts.AccessKey != "a" {
+		t.Errorf("the access key of the URI must be %s but got %s", "a", opts.AccessKey)
+	}
+
+	if opts.SecretKey != "b" {
+		t.Errorf("the secret key of the URI must be %s but got %s", "b", opts.SecretKey)
+	}
+
+	if opts.Namespace != "ns" {
+		t.Errorf("the namespace of the URI must be %s but got %s", "ns", opts.Namespace)
+	}
+
+	if opts.App != "app" {
+		t.Errorf("the app of the URI must be %s but got %s", "app", opts.App)
 	}
 }

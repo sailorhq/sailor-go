@@ -102,8 +102,8 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 
 	if initOpts.Connection == nil {
 		var conn = opts.ConnectionOption{}
-		// we try getting all the necessary details from env
 
+		// we try getting all the necessary details from env
 		if conn.Addr = os.Getenv(ENV_SAILOR_URL); conn.Addr == "" {
 			return nil, ErrNewConsumerNoSailorURL
 		}
@@ -126,28 +126,48 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 
 		initOpts.Connection = &conn
 		consumer.opts = initOpts
-	} else {
-		if initOpts.Connection.Addr == "" {
-			return nil, ErrNewConsumerNoSailorURL
-		}
 
-		if initOpts.Connection.Namespace == "" {
-			return nil, ErrNewConsumerNoSailorNS
-		}
-
-		if initOpts.Connection.App == "" {
-			return nil, ErrNewConsumerNoSailorApp
-		}
-
-		if initOpts.Connection.AccessKey == "" {
-			return nil, ErrNewConsumerNoSailorAccessKey
-		}
-
-		if initOpts.Connection.SecretKey == "" {
-			return nil, ErrNewConsumerNoSailorSecretKey
-		}
-		consumer.opts = initOpts
+		return &consumer, nil
 	}
+
+	// we parse the URI and set all the components to consumer for connection
+	if initOpts.Connection.URI != "" {
+		conn, err := parseURI(initOpts.Connection.URI)
+		if err != nil {
+			return nil, err
+		}
+
+		initOpts.Connection = conn
+		consumer.opts = initOpts
+
+		return &consumer, nil
+	}
+
+	// This block of code executes when the initOpts is provided by the developer but URI is not provided.
+	// It means that we have to check each option with its own ENV_VAR counterpart and set it in
+	// the options. The ENV_VAR always gets precendence!
+	var optsInitErr error
+	if initOpts.Connection.Addr, optsInitErr = getEnvOrOpt(initOpts.Connection.Addr, ENV_SAILOR_URL, ErrNewConsumerNoSailorURL); optsInitErr != nil {
+		return nil, optsInitErr
+	}
+
+	if initOpts.Connection.Namespace, optsInitErr = getEnvOrOpt(initOpts.Connection.Namespace, ENV_SAILOR_NS, ErrNewConsumerNoSailorNS); optsInitErr != nil {
+		return nil, optsInitErr
+	}
+
+	if initOpts.Connection.App, optsInitErr = getEnvOrOpt(initOpts.Connection.App, ENV_SAILOR_APP, ErrNewConsumerNoSailorApp); optsInitErr != nil {
+		return nil, optsInitErr
+	}
+
+	if initOpts.Connection.AccessKey, optsInitErr = getEnvOrOpt(initOpts.Connection.AccessKey, ENV_SAILOR_APP, ErrNewConsumerNoSailorAccessKey); optsInitErr != nil {
+		return nil, optsInitErr
+	}
+
+	if initOpts.Connection.SecretKey, optsInitErr = getEnvOrOpt(initOpts.Connection.SecretKey, ENV_SAILOR_APP, ErrNewConsumerNoSailorSecretKey); optsInitErr != nil {
+		return nil, optsInitErr
+	}
+
+	consumer.opts = initOpts
 
 	return &consumer, nil
 }
@@ -613,4 +633,57 @@ func (c *Consumer[C, S]) GetMisc(name string) ([]byte, error) {
 	}
 
 	return miscMap[name], nil
+}
+
+func parseURI(uri string) (*opts.ConnectionOption, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	if u.Scheme != "sailor" {
+		return nil, ErrInvalidURIPrefix
+	}
+
+	path := strings.TrimPrefix(u.Path, "/")
+	components := strings.Split(path, "/")
+	if len(components) != 2 {
+		return nil, ErrMissingURIPathComponents
+	}
+
+	var accessKey, secretKey string
+	if accessKey = u.User.Username(); accessKey == "" {
+		return nil, ErrNewConsumerNoSailorAccessKey
+	}
+
+	var sok bool
+	if secretKey, sok = u.User.Password(); !sok {
+		return nil, ErrNewConsumerNoSailorSecretKey
+	}
+
+	var opt = opts.ConnectionOption{
+		URI:       uri,
+		Addr:      u.Host,
+		Namespace: components[0],
+		App:       components[1],
+		AccessKey: accessKey,
+		SecretKey: secretKey,
+	}
+
+	return &opt, nil
+}
+
+// getEnvOrOpt returns the environment variable if present or the option provided
+// in init options.
+func getEnvOrOpt(v string, envName string, e error) (string, error) {
+	ev := os.Getenv(envName)
+	if ev != "" {
+		return ev, nil
+	}
+
+	if v != "" {
+		return v, nil
+	}
+
+	return "", e
 }
