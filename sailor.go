@@ -35,6 +35,7 @@ import (
 )
 
 const (
+	ENV_SAILOR_URI               = "SAILOR_URI"
 	ENV_SAILOR_URL               = "SAILOR_URL"
 	ENV_SAILOR_NS                = "SAILOR_NS"
 	ENV_SAILOR_APP               = "SAILOR_APP"
@@ -108,6 +109,24 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 		initOpts.Watch = &watch
 	}
 
+	uri := os.Getenv(ENV_SAILOR_URI)
+	if uri == "" && initOpts.Connection != nil {
+		uri = initOpts.Connection.URI
+	}
+
+	if uri != "" {
+		// we parse the URI and set all the components to consumer for connection
+		conn, err := parseURI(uri)
+		if err != nil {
+			return nil, err
+		}
+
+		initOpts.Connection = conn
+		consumer.opts = initOpts
+
+		return &consumer, nil
+	}
+
 	if initOpts.Connection == nil {
 		var conn = opts.ConnectionOption{}
 
@@ -133,19 +152,6 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 		}
 
 		initOpts.Connection = &conn
-		consumer.opts = initOpts
-
-		return &consumer, nil
-	}
-
-	// we parse the URI and set all the components to consumer for connection
-	if initOpts.Connection.URI != "" {
-		conn, err := parseURI(initOpts.Connection.URI)
-		if err != nil {
-			return nil, err
-		}
-
-		initOpts.Connection = conn
 		consumer.opts = initOpts
 
 		return &consumer, nil

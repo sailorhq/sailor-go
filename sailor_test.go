@@ -272,3 +272,339 @@ func TestParseURI(t *testing.T) {
 		t.Errorf("the app of the URI must be %s but got %s", "app", opts.App)
 	}
 }
+
+func TestNewConsumerWithURIFromEnv(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Set URI in environment
+	testURI := "sailor://access:secret@localhost:7766/testns/testapp"
+	os.Setenv(ENV_SAILOR_URI, testURI)
+
+	consumer, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: testURI,
+		},
+	})
+
+	if err != nil {
+		t.Errorf("NewConsumer should not error with valid URI from env, got: %v", err)
+		return
+	}
+
+	if consumer == nil {
+		t.Error("NewConsumer should return a consumer")
+		return
+	}
+
+	if consumer.opts.Connection == nil {
+		t.Error("Connection should be set")
+		return
+	}
+
+	// Verify parsed connection options
+	if consumer.opts.Connection.Addr != "localhost:7766" {
+		t.Errorf("expected Addr to be 'localhost:7766', got '%s'", consumer.opts.Connection.Addr)
+	}
+
+	if consumer.opts.Connection.Namespace != "testns" {
+		t.Errorf("expected Namespace to be 'testns', got '%s'", consumer.opts.Connection.Namespace)
+	}
+
+	if consumer.opts.Connection.App != "testapp" {
+		t.Errorf("expected App to be 'testapp', got '%s'", consumer.opts.Connection.App)
+	}
+
+	if consumer.opts.Connection.AccessKey != "access" {
+		t.Errorf("expected AccessKey to be 'access', got '%s'", consumer.opts.Connection.AccessKey)
+	}
+
+	if consumer.opts.Connection.SecretKey != "secret" {
+		t.Errorf("expected SecretKey to be 'secret', got '%s'", consumer.opts.Connection.SecretKey)
+	}
+}
+
+func TestNewConsumerWithURIFromInitOpts(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Unset env variable
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	testURI := "sailor://ak:sk@example.com:8080/myns/myapp"
+	consumer, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: testURI,
+		},
+	})
+
+	if err != nil {
+		t.Errorf("NewConsumer should not error with valid URI from initOpts, got: %v", err)
+		return
+	}
+
+	if consumer == nil {
+		t.Error("NewConsumer should return a consumer")
+		return
+	}
+
+	if consumer.opts.Connection == nil {
+		t.Error("Connection should be set")
+		return
+	}
+
+	// Verify parsed connection options
+	if consumer.opts.Connection.Addr != "example.com:8080" {
+		t.Errorf("expected Addr to be 'example.com:8080', got '%s'", consumer.opts.Connection.Addr)
+	}
+
+	if consumer.opts.Connection.Namespace != "myns" {
+		t.Errorf("expected Namespace to be 'myns', got '%s'", consumer.opts.Connection.Namespace)
+	}
+
+	if consumer.opts.Connection.App != "myapp" {
+		t.Errorf("expected App to be 'myapp', got '%s'", consumer.opts.Connection.App)
+	}
+
+	if consumer.opts.Connection.AccessKey != "ak" {
+		t.Errorf("expected AccessKey to be 'ak', got '%s'", consumer.opts.Connection.AccessKey)
+	}
+
+	if consumer.opts.Connection.SecretKey != "sk" {
+		t.Errorf("expected SecretKey to be 'sk', got '%s'", consumer.opts.Connection.SecretKey)
+	}
+}
+
+func TestNewConsumerWithInvalidURIScheme(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Unset env variable
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	invalidURI := "http://ak:sk@example.com/myns/myapp"
+	_, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: invalidURI,
+		},
+	})
+
+	if err == nil {
+		t.Error("NewConsumer should error with invalid URI scheme")
+		return
+	}
+
+	if !errors.Is(err, ErrInvalidURIPrefix) {
+		t.Errorf("expected ErrInvalidURIPrefix, got: %v", err)
+	}
+}
+
+func TestNewConsumerWithInvalidURIMissingPathComponents(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Unset env variable
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	invalidURI := "sailor://ak:sk@example.com/myns"
+	_, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: invalidURI,
+		},
+	})
+
+	if err == nil {
+		t.Error("NewConsumer should error with URI missing path components")
+		return
+	}
+
+	if !errors.Is(err, ErrMissingURIPathComponents) {
+		t.Errorf("expected ErrMissingURIPathComponents, got: %v", err)
+	}
+}
+
+func TestNewConsumerWithInvalidURIMissingAccessKey(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Unset env variable
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	invalidURI := "sailor://:sk@example.com/myns/myapp"
+	_, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: invalidURI,
+		},
+	})
+
+	if err == nil {
+		t.Error("NewConsumer should error with URI missing access key")
+		return
+	}
+
+	if !errors.Is(err, ErrNewConsumerNoSailorAccessKey) {
+		t.Errorf("expected ErrNewConsumerNoSailorAccessKey, got: %v", err)
+	}
+}
+
+func TestNewConsumerWithInvalidURIMissingSecretKey(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Unset env variable
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	invalidURI := "sailor://ak@example.com/myns/myapp"
+	_, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: invalidURI,
+		},
+	})
+
+	if err == nil {
+		t.Error("NewConsumer should error with URI missing secret key")
+		return
+	}
+
+	if !errors.Is(err, ErrNewConsumerNoSailorSecretKey) {
+		t.Errorf("expected ErrNewConsumerNoSailorSecretKey, got: %v", err)
+	}
+}
+
+func TestNewConsumerWithURIEnvTakesPrecedence(t *testing.T) {
+	// Save original env value
+	originalURI := os.Getenv(ENV_SAILOR_URI)
+	defer os.Setenv(ENV_SAILOR_URI, originalURI)
+
+	// Set URI in environment
+	envURI := "sailor://envak:envsk@envhost:9999/envns/envapp"
+	os.Setenv(ENV_SAILOR_URI, envURI)
+
+	// Also provide URI in initOpts (should be ignored if env is set)
+	optsURI := "sailor://optak:optsk@opthost:8888/optns/optapp"
+	consumer, err := NewConsumer[any, any](opts.InitOption{
+		Resources: []opts.ResourceOption{
+			{
+				Def: opts.ResourceDefinition{
+					Kind: opts.CONFIGS,
+					Path: testFolder,
+				},
+				FetchDef: opts.FetchDefinition{
+					Fetch: opts.VOLUME,
+				},
+			},
+		},
+		Connection: &opts.ConnectionOption{
+			URI: optsURI,
+		},
+	})
+
+	if err != nil {
+		t.Errorf("NewConsumer should not error, got: %v", err)
+		return
+	}
+
+	if consumer == nil {
+		t.Error("NewConsumer should return a consumer")
+		return
+	}
+
+	if consumer.opts.Connection == nil {
+		t.Error("Connection should be set")
+		return
+	}
+
+	// Verify that env URI takes precedence over initOpts URI
+	// The env URI should be parsed, not the optsURI
+	if consumer.opts.Connection.Addr != "envhost:9999" {
+		t.Errorf("expected Addr to be 'envhost:9999' (from env), got '%s'", consumer.opts.Connection.Addr)
+	}
+
+	if consumer.opts.Connection.Namespace != "envns" {
+		t.Errorf("expected Namespace to be 'envns' (from env), got '%s'", consumer.opts.Connection.Namespace)
+	}
+
+	if consumer.opts.Connection.App != "envapp" {
+		t.Errorf("expected App to be 'envapp' (from env), got '%s'", consumer.opts.Connection.App)
+	}
+
+	if consumer.opts.Connection.AccessKey != "envak" {
+		t.Errorf("expected AccessKey to be 'envak' (from env), got '%s'", consumer.opts.Connection.AccessKey)
+	}
+
+	if consumer.opts.Connection.SecretKey != "envsk" {
+		t.Errorf("expected SecretKey to be 'envsk' (from env), got '%s'", consumer.opts.Connection.SecretKey)
+	}
+}
