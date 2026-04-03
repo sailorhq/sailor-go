@@ -123,6 +123,7 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 
 		initOpts.Connection = conn
 		consumer.opts = initOpts
+		consumer.sailorClient = &http.Client{}
 
 		return &consumer, nil
 	}
@@ -153,6 +154,7 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 
 		initOpts.Connection = &conn
 		consumer.opts = initOpts
+		consumer.sailorClient = &http.Client{}
 
 		return &consumer, nil
 	}
@@ -182,6 +184,7 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 	}
 
 	consumer.opts = initOpts
+	consumer.sailorClient = &http.Client{}
 
 	return &consumer, nil
 }
@@ -320,14 +323,14 @@ func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// :goto fallback
-				break
+				goto PULL_CONFIG_FALLBACK
 			}
 
 			configBytes, err := io.ReadAll(resp.Body)
 			defer resp.Body.Close()
 			if err != nil {
 				// :goto fallback
-				break
+				goto PULL_CONFIG_FALLBACK
 			}
 
 			if err := c.storeRawResource(configBytes, res.Def.Kind, res.Def.Name); err != nil {
@@ -342,6 +345,7 @@ func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 			return nil
 		}
 
+PULL_CONFIG_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
@@ -387,14 +391,14 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
-				break
+				goto PULL_SECRET_FALLBACK
 			}
 
 			secretBytes, err := io.ReadAll(resp.Body)
 			defer resp.Body.Close()
 			if err != nil {
 				// goto fallback
-				break
+				goto PULL_SECRET_FALLBACK
 			}
 
 			if err := c.storeRawResource(secretBytes, res.Def.Kind, res.Def.Name); err != nil {
@@ -409,6 +413,7 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 			return nil
 		}
 
+PULL_SECRET_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
@@ -455,14 +460,14 @@ func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
-				break
+				goto PULL_MISC_FALLBACK
 			}
 
 			miscBytes, err := io.ReadAll(resp.Body)
 			defer resp.Body.Close()
 			if err != nil {
 				// goto fallback
-				break
+				goto PULL_MISC_FALLBACK
 			}
 
 			if err := c.storeRawResource(miscBytes, res.Def.Kind, res.Def.Name); err != nil {
@@ -477,6 +482,7 @@ func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 			return nil
 		}
 
+PULL_MISC_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
