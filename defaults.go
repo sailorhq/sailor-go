@@ -122,3 +122,23 @@ func MiscPullDefault(resourceName string) opts.ResourceOption {
 		FallbackEnabled: true,
 	}
 }
+
+// ConfigDevDefault is a ResourceOption for local development. It fetches the
+// config from the Sailor API on startup, caches it to ~/.sailor/cache, and
+// watches that file for local edits — enabling live reload without redeployment.
+func ConfigDevDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def:      opts.ResourceDefinition{Kind: opts.CONFIGS},
+		FetchDef: opts.FetchDefinition{Fetch: opts.DEV},
+	}
+}
+
+// SecretsDevDefault is a ResourceOption for local development. It fetches
+// secrets from the Sailor API on startup, caches them to ~/.sailor/cache, and
+// watches that file for local edits — enabling live reload without redeployment.
+func SecretsDevDefault() opts.ResourceOption {
+	return opts.ResourceOption{
+		Def:      opts.ResourceDefinition{Kind: opts.SECRETS},
+		FetchDef: opts.FetchDefinition{Fetch: opts.DEV},
+	}
+}

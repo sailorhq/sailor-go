@@ -6,7 +6,7 @@ import (
 	"github.com/sailorhq/sailor-go/pkg/opts"
 )
 
-func TestNewConsumerEnvVars(t *testing.T) {
+func TestNewConsumerRequiresURI(t *testing.T) {
 	initOpts := opts.InitOption{
 		Resources: []opts.ResourceOption{
 			{
@@ -20,49 +20,19 @@ func TestNewConsumerEnvVars(t *testing.T) {
 		},
 	}
 
-	os.Unsetenv(ENV_SAILOR_URL)
-	defer os.Unsetenv(ENV_SAILOR_URL)
-	os.Unsetenv(ENV_SAILOR_NS)
-	defer os.Unsetenv(ENV_SAILOR_NS)
-	os.Unsetenv(ENV_SAILOR_APP)
-	defer os.Unsetenv(ENV_SAILOR_APP)
-	os.Unsetenv(ENV_SAILOR_ACCESS_KEY)
-	defer os.Unsetenv(ENV_SAILOR_ACCESS_KEY)
-	os.Unsetenv(ENV_SAILOR_SECRET_KEY)
-	defer os.Unsetenv(ENV_SAILOR_SECRET_KEY)
+	os.Unsetenv(ENV_SAILOR_URI)
+	defer os.Unsetenv(ENV_SAILOR_URI)
 
+	// no URI at all — must return ErrNewConsumerNoSailorURI
 	_, err := NewConsumer[any, any](initOpts)
-	if err != ErrNewConsumerNoSailorURL {
-		t.Errorf("expected ErrNewConsumerNoSailorURL, got %v", err)
+	if err != ErrNewConsumerNoSailorURI {
+		t.Errorf("expected ErrNewConsumerNoSailorURI, got %v", err)
 	}
 
-	os.Setenv(ENV_SAILOR_URL, "http://localhost")
-	_, err = NewConsumer[any, any](initOpts)
-	if err != ErrNewConsumerNoSailorNS {
-		t.Errorf("expected ErrNewConsumerNoSailorNS, got %v", err)
-	}
-
-	os.Setenv(ENV_SAILOR_NS, "ns")
-	_, err = NewConsumer[any, any](initOpts)
-	if err != ErrNewConsumerNoSailorApp {
-		t.Errorf("expected ErrNewConsumerNoSailorApp, got %v", err)
-	}
-
-	os.Setenv(ENV_SAILOR_APP, "app")
-	_, err = NewConsumer[any, any](initOpts)
-	if err != ErrNewConsumerNoSailorAccessKey {
-		t.Errorf("expected ErrNewConsumerNoSailorAccessKey, got %v", err)
-	}
-
-	os.Setenv(ENV_SAILOR_ACCESS_KEY, "ak")
-	_, err = NewConsumer[any, any](initOpts)
-	if err != ErrNewConsumerNoSailorSecretKey {
-		t.Errorf("expected ErrNewConsumerNoSailorSecretKey, got %v", err)
-	}
-
-	os.Setenv(ENV_SAILOR_SECRET_KEY, "sk")
+	// SAILOR_URI set to a valid URI — must succeed
+	os.Setenv(ENV_SAILOR_URI, "sailor://ak:sk@localhost:7766/testns/testapp")
 	_, err = NewConsumer[any, any](initOpts)
 	if err != nil {
-		t.Errorf("expected nil, got %v", err)
+		t.Errorf("expected nil error with valid SAILOR_URI, got %v", err)
 	}
 }

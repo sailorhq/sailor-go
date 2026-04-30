@@ -1,7 +1,6 @@
 package sailor
 
 import (
-	"os"
 	"testing"
 )
 
@@ -57,15 +56,3 @@ func TestGetErrors(t *testing.T) {
 	}
 }
 
-func TestGetEnvOrOptFallback(t *testing.T) {
-	os.Setenv("TEST_ENV_VAR", "myval")
-	defer os.Unsetenv("TEST_ENV_VAR")
-
-	v, err := getEnvOrOpt("", "TEST_ENV_VAR", ErrNewConsumerNoSailorApp)
-	if err != nil {
-		t.Errorf("expected no error, got %v", err)
-	}
-	if v != "myval" {
-		t.Errorf("expected myval, got %v", v)
-	}
-}

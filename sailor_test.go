@@ -64,49 +64,25 @@ func TestNewConsumerInvalidConnectionOption(t *testing.T) {
 			},
 		},
 	}
-	// no connection options
+
+	// no connection options and no SAILOR_URI — must fail
+	os.Unsetenv(ENV_SAILOR_URI)
 	_, err := NewConsumer[any, any](initOpts)
-	if !errors.Is(err, ErrNewConsumerNoSailorURL) {
-		t.Error(err)
+	if !errors.Is(err, ErrNewConsumerNoSailorURI) {
+		t.Errorf("expected ErrNewConsumerNoSailorURI, got %v", err)
 		return
 	}
 
-	var connectionOption = opts.ConnectionOption{
-		Addr: "addr",
+	// full direct connection provided — should succeed
+	initOpts.Connection = &opts.ConnectionOption{
+		Addr:      "localhost:7766",
+		Namespace: "ns",
+		App:       "app",
+		AccessKey: "ak",
+		SecretKey: "sk",
 	}
-	initOpts.Connection = &connectionOption
-
-	// only addr given
-	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorNS) {
-		t.Error(err)
-		return
-	}
-
-	connectionOption.Namespace = "ns"
-	// only addr and ns given
-	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorApp) {
-		t.Error(err)
-		return
-	}
-
-	connectionOption.App = "app"
-	// only addr, ns & app given
-	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorAccessKey) {
-		t.Error(err)
-		return
-	}
-
-	connectionOption.AccessKey = "ak"
-	// only addr, ns, app & access key given
-	if _, err := NewConsumer[any, any](initOpts); !errors.Is(err, ErrNewConsumerNoSailorSecretKey) {
-		t.Error(err)
-		return
-	}
-
-	connectionOption.SecretKey = "sk"
-	// all options given, should not error
 	if _, err := NewConsumer[any, any](initOpts); err != nil {
-		t.Error(err)
+		t.Errorf("expected no error with full connection, got %v", err)
 	}
 }
 
@@ -606,5 +582,45 @@ func TestNewConsumerWithURIEnvTakesPrecedence(t *testing.T) {
 
 	if consumer.opts.Connection.SecretKey != "envsk" {
 		t.Errorf("expected SecretKey to be 'envsk' (from env), got '%s'", consumer.opts.Connection.SecretKey)
+	}
+}
+
+func TestNewConsumerUseLocalConfig_MissingNsOrApp(t *testing.T) {
+	os.Unsetenv(ENV_SAILOR_URI)
+
+	resources := []opts.ResourceOption{
+		{
+			Def:      opts.ResourceDefinition{Kind: opts.CONFIGS, Path: testFolder},
+			FetchDef: opts.FetchDefinition{Fetch: opts.VOLUME},
+		},
+	}
+
+	// nil Connection
+	_, err := NewConsumer[any, any](opts.InitOption{
+		UseSailorConfig: true,
+		Resources:       resources,
+	})
+	if !errors.Is(err, ErrLocalConfigMissingNsOrApp) {
+		t.Errorf("expected ErrLocalConfigMissingNsOrApp with nil Connection, got %v", err)
+	}
+
+	// empty Namespace
+	_, err = NewConsumer[any, any](opts.InitOption{
+		UseSailorConfig: true,
+		Connection:      &opts.ConnectionOption{App: "myapp"},
+		Resources:       resources,
+	})
+	if !errors.Is(err, ErrLocalConfigMissingNsOrApp) {
+		t.Errorf("expected ErrLocalConfigMissingNsOrApp with empty Namespace, got %v", err)
+	}
+
+	// empty App
+	_, err = NewConsumer[any, any](opts.InitOption{
+		UseSailorConfig: true,
+		Connection:      &opts.ConnectionOption{Namespace: "myns"},
+		Resources:       resources,
+	})
+	if !errors.Is(err, ErrLocalConfigMissingNsOrApp) {
+		t.Errorf("expected ErrLocalConfigMissingNsOrApp with empty App, got %v", err)
 	}
 }
