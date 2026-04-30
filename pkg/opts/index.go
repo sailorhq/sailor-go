@@ -24,6 +24,7 @@ type FetchOption int
 const (
 	VOLUME FetchOption = iota + 1
 	PULL
+	DEV
 
 	CONFIGS ResourceKind = "config"
 	SECRETS ResourceKind = "secret"
@@ -37,6 +38,8 @@ type ConnectionOption struct {
 	App           string
 	AccessKey     string
 	SecretKey     string
+	Token         string
+	Env           string
 	SocketTimeout time.Duration
 }
 
@@ -49,6 +52,10 @@ type InitOption struct {
 
 	// Watch flag toggles the watcher feature inside Sailor Client
 	Watch *bool
+
+	// UseSailorConfig reads connection details (host, token, env) from ~/.sailor/config.
+	// Connection.Namespace and Connection.App must still be provided by the caller.
+	UseSailorConfig bool
 }
 
 type ResourceDefinition struct {

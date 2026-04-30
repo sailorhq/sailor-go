@@ -19,9 +19,7 @@ import "errors"
 
 var (
 	ErrNewConsumerEmptyResourceList = errors.New("no resources to manage, pass Resources inside opts")
-	ErrNewConsumerNoSailorURL       = errors.New("cannot connect to sailor without address, either pass ENV_SAILOR_URL or set through Connection in SailorOpts")
-	ErrNewConsumerNoSailorNS        = errors.New("cannot connect to sailor, either pass ENV_SAILOR_NS or set through Connection in SailorOpts")
-	ErrNewConsumerNoSailorApp       = errors.New("cannot connect to sailor, either pass ENV_SAILOR_APP or set through Connection in SailorOpts")
+	ErrNewConsumerNoSailorURI       = errors.New("cannot connect to sailor without a URI, set SAILOR_URI or pass Connection.URI in SailorOpts")
 	ErrNewConsumerNoSailorAccessKey = errors.New("cannot connect to sailor, either pass ENV_SAILOR_ACCESS_KEY or set through Connection in SailorOpts")
 	ErrNewConsumerNoSailorSecretKey = errors.New("cannot connect to sailor, either pass ENV_SAILOR_SECRET_KEY or set through Connection in SailorOpts")
 	ErrFetchFallbackFailed          = errors.New("cannot find config to serve, fallback fetch also failed")
@@ -30,4 +28,8 @@ var (
 	ErrMiscNotLoaded                = errors.New("misc resource are not loaded")
 	ErrInvalidURIPrefix             = errors.New("invalid sailor URI prefix")
 	ErrMissingURIPathComponents     = errors.New("either ns or app missing from URI")
+	ErrLocalConfigNotFound          = errors.New("~/.sailor/config not found; run 'sailor login' first")
+	ErrLocalConfigInvalid           = errors.New("~/.sailor/config is malformed")
+	ErrLocalConfigEnvNotFound       = errors.New("active env not found in ~/.sailor/config manifest")
+	ErrLocalConfigMissingNsOrApp    = errors.New("Namespace and App must be set in Connection when UseSailorConfig is true")
 )
