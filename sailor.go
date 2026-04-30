@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,11 +37,6 @@ import (
 
 const (
 	ENV_SAILOR_URI               = "SAILOR_URI"
-	ENV_SAILOR_URL               = "SAILOR_URL"
-	ENV_SAILOR_NS                = "SAILOR_NS"
-	ENV_SAILOR_APP               = "SAILOR_APP"
-	ENV_SAILOR_ACCESS_KEY        = "SAILOR_ACCESS_KEY"
-	ENV_SAILOR_SECRET_KEY        = "SAILOR_SECRET_KEY"
 	ENV_SAILOR_FALLBACK_BASE_URL = "SAILOR_FALLBACK_BASE_URL"
 )
 
@@ -79,6 +75,10 @@ type watcherInfo struct {
 	// name is the name of the resource, this is only used in case of misc config
 	// where a resource can have its own name
 	name string
+
+	// isDev marks this entry as a DEV-mode cached resource so the watcher
+	// uses DEV-style logging instead of the plain [sailor] logs
+	isDev bool
 }
 
 // watcherFileNameResourceMap keeps tab of resources which needs to be watched.
@@ -109,84 +109,56 @@ func NewConsumer[C any, S any](initOpts opts.InitOption) (*Consumer[C, S], error
 		initOpts.Watch = &watch
 	}
 
-	uri := os.Getenv(ENV_SAILOR_URI)
-	if uri == "" && initOpts.Connection != nil {
-		uri = initOpts.Connection.URI
-	}
-
-	if uri != "" {
-		// we parse the URI and set all the components to consumer for connection
+	// SAILOR_URI env var takes highest precedence
+	if uri := os.Getenv(ENV_SAILOR_URI); uri != "" {
 		conn, err := parseURI(uri)
 		if err != nil {
 			return nil, err
 		}
-
 		initOpts.Connection = conn
 		consumer.opts = initOpts
 		consumer.sailorClient = &http.Client{}
-
 		return &consumer, nil
 	}
 
-	if initOpts.Connection == nil {
-		var conn = opts.ConnectionOption{}
-
-		// we try getting all the necessary details from env
-		if conn.Addr = os.Getenv(ENV_SAILOR_URL); conn.Addr == "" {
-			return nil, ErrNewConsumerNoSailorURL
+	// Local developer config from ~/.sailor/config
+	if initOpts.UseSailorConfig {
+		if initOpts.Connection == nil ||
+			initOpts.Connection.Namespace == "" ||
+			initOpts.Connection.App == "" {
+			return nil, ErrLocalConfigMissingNsOrApp
 		}
-
-		if conn.Namespace = os.Getenv(ENV_SAILOR_NS); conn.Namespace == "" {
-			return nil, ErrNewConsumerNoSailorNS
+		conn, err := buildConnectionFromLocalConfig(initOpts.Connection)
+		if err != nil {
+			return nil, err
 		}
-
-		if conn.App = os.Getenv(ENV_SAILOR_APP); conn.App == "" {
-			return nil, ErrNewConsumerNoSailorApp
-		}
-
-		if conn.AccessKey = os.Getenv(ENV_SAILOR_ACCESS_KEY); conn.AccessKey == "" {
-			return nil, ErrNewConsumerNoSailorAccessKey
-		}
-
-		if conn.SecretKey = os.Getenv(ENV_SAILOR_SECRET_KEY); conn.SecretKey == "" {
-			return nil, ErrNewConsumerNoSailorSecretKey
-		}
-
-		initOpts.Connection = &conn
+		initOpts.Connection = conn
+		devLogBanner(conn.Env, conn.Addr, conn.Namespace, conn.App)
 		consumer.opts = initOpts
 		consumer.sailorClient = &http.Client{}
-
 		return &consumer, nil
 	}
 
-	// This block of code executes when the initOpts is provided by the developer but URI is not provided.
-	// It means that we have to check each option with its own ENV_VAR counterpart and set it in
-	// the options. The ENV_VAR always gets precendence!
-	var optsInitErr error
-	if initOpts.Connection.Addr, optsInitErr = getEnvOrOpt(initOpts.Connection.Addr, ENV_SAILOR_URL, ErrNewConsumerNoSailorURL); optsInitErr != nil {
-		return nil, optsInitErr
+	// URI provided programmatically via Connection.URI
+	if initOpts.Connection != nil && initOpts.Connection.URI != "" {
+		conn, err := parseURI(initOpts.Connection.URI)
+		if err != nil {
+			return nil, err
+		}
+		initOpts.Connection = conn
+		consumer.opts = initOpts
+		consumer.sailorClient = &http.Client{}
+		return &consumer, nil
 	}
 
-	if initOpts.Connection.Namespace, optsInitErr = getEnvOrOpt(initOpts.Connection.Namespace, ENV_SAILOR_NS, ErrNewConsumerNoSailorNS); optsInitErr != nil {
-		return nil, optsInitErr
+	// Direct programmatic connection with all fields set
+	if initOpts.Connection != nil {
+		consumer.opts = initOpts
+		consumer.sailorClient = &http.Client{}
+		return &consumer, nil
 	}
 
-	if initOpts.Connection.App, optsInitErr = getEnvOrOpt(initOpts.Connection.App, ENV_SAILOR_APP, ErrNewConsumerNoSailorApp); optsInitErr != nil {
-		return nil, optsInitErr
-	}
-
-	if initOpts.Connection.AccessKey, optsInitErr = getEnvOrOpt(initOpts.Connection.AccessKey, ENV_SAILOR_APP, ErrNewConsumerNoSailorAccessKey); optsInitErr != nil {
-		return nil, optsInitErr
-	}
-
-	if initOpts.Connection.SecretKey, optsInitErr = getEnvOrOpt(initOpts.Connection.SecretKey, ENV_SAILOR_APP, ErrNewConsumerNoSailorSecretKey); optsInitErr != nil {
-		return nil, optsInitErr
-	}
-
-	consumer.opts = initOpts
-	consumer.sailorClient = &http.Client{}
-
-	return &consumer, nil
+	return nil, ErrNewConsumerNoSailorURI
 }
 
 func (c *Consumer[C, S]) Start() error {
@@ -235,49 +207,43 @@ func (c *Consumer[C, S]) watchForVolumeChanges() {
 				// consistent instead
 				time.Sleep(1 * time.Second)
 
+				hasVolume := false
 				for _, wi := range watcherFileNameResourceMap {
 					// TODO :: we need to keep a checksum where it computes the hash
 					// and keeps it in memory for checking if the file has changed or not.
 					// If it is deployed in a volume inside K8s, this uses symlink and
 					// we don't come to know which resource has changed.
-					switch wi.kind {
-					case opts.CONFIGS:
-						configBytes, err := os.ReadFile(wi.path)
-						if err != nil {
-							log.Println("[sailor] config has changed but unable to updated it due to: ", err.Error())
-							continue
-						}
+					if !wi.isDev {
+						hasVolume = true
+					}
 
-						if err := c.storeRawResource(configBytes, wi.kind, wi.name); err != nil {
-							log.Println("[sailor] config has changed but unable to store it due to: ", err.Error())
-							continue
+					resBytes, err := os.ReadFile(wi.path)
+					if err != nil {
+						if wi.isDev {
+							devLogReloadError(wi.kind, err.Error())
+						} else {
+							log.Printf("[sailor] %s has changed but unable to read it: %s", wi.kind, err.Error())
 						}
-					case opts.SECRETS:
-						secretBytes, err := os.ReadFile(wi.path)
-						if err != nil {
-							log.Println("[sailor] secrets has changed but unable to updated it due to: ", err.Error())
-							continue
-						}
+						continue
+					}
 
-						if err := c.storeRawResource(secretBytes, wi.kind, wi.name); err != nil {
-							log.Println("[sailor] secrets has changed but unable to store it due to: ", err.Error())
-							continue
+					if err := c.storeRawResource(resBytes, wi.kind, wi.name); err != nil {
+						if wi.isDev {
+							devLogReloadError(wi.kind, err.Error())
+						} else {
+							log.Printf("[sailor] %s has changed but unable to store it: %s", wi.kind, err.Error())
 						}
-					case opts.MISC:
-						miscBytes, err := os.ReadFile(wi.path)
-						if err != nil {
-							log.Println("[sailor] misc has changed but unable to updated it due to: ", err.Error())
-							continue
-						}
+						continue
+					}
 
-						if err := c.storeRawResource(miscBytes, wi.kind, wi.name); err != nil {
-							log.Println("[sailor] misc has changed but unable to store it due to: ", err.Error())
-							continue
-						}
+					if wi.isDev {
+						devLogReloaded(wi.kind, wi.path)
 					}
 				}
 
-				log.Println("[sailor] processed watchable resources")
+				if hasVolume {
+					log.Println("[sailor] processed watchable resources")
+				}
 			}
 		case err := <-c.watcher.Errors:
 			log.Println(err)
@@ -299,7 +265,7 @@ func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 
 			// add watcher details
 			c.hasWatchableResource = true
-			watcherFileNameResourceMap["_config"] = watcherInfo{opts.CONFIGS, resourcePath, ""}
+			watcherFileNameResourceMap["_config"] = watcherInfo{kind: opts.CONFIGS, path: resourcePath}
 			// we watch for directory changes as volume mount swaps with symlinks
 			c.watcher.Add(res.Def.Path)
 
@@ -319,7 +285,7 @@ func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 			c.opts.Connection.App,
 		)
 
-		resp, err := c.sailorClient.Get(url)
+		resp, err := c.doGet(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// :goto fallback
@@ -345,10 +311,39 @@ func (c *Consumer[C, S]) manageConfig(res *opts.ResourceOption) error {
 			return nil
 		}
 
-PULL_CONFIG_FALLBACK:
+	PULL_CONFIG_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
+
+		return nil
+	case opts.DEV:
+		cachePath, err := devCachePath(c.opts.Connection, opts.CONFIGS)
+		if err != nil {
+			return err
+		}
+
+		apiURL := fmt.Sprintf("%s/api/v1/resource/%s/%s/config",
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
+		)
+
+		configBytes, err := c.devLoadOrFetch(apiURL, cachePath, opts.CONFIGS)
+		if err != nil {
+			return err
+		}
+
+		if err := c.storeRawResource(configBytes, res.Def.Kind, res.Def.Name); err != nil {
+			return err
+		}
+
+		c.hasWatchableResource = true
+		cacheKey := fmt.Sprintf("dev_%s_%s_config", c.opts.Connection.Namespace, c.opts.Connection.App)
+		watcherFileNameResourceMap[cacheKey] = watcherInfo{kind: opts.CONFIGS, path: cachePath, isDev: true}
+		cacheDir := filepath.Dir(cachePath)
+		c.watcher.Add(cacheDir)
+		devLogWatching(opts.CONFIGS, cacheDir)
 
 		return nil
 	}
@@ -368,7 +363,7 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 
 			// add watcher details
 			c.hasWatchableResource = true
-			watcherFileNameResourceMap["_secret"] = watcherInfo{opts.SECRETS, resourcePath, ""}
+			watcherFileNameResourceMap["_secret"] = watcherInfo{kind: opts.SECRETS, path: resourcePath}
 			c.watcher.Add(res.Def.Path)
 
 			return nil
@@ -387,7 +382,7 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 			c.opts.Connection.App,
 		)
 
-		resp, err := c.sailorClient.Get(url)
+		resp, err := c.doGet(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
@@ -413,10 +408,39 @@ func (c *Consumer[C, S]) manageSecrets(res *opts.ResourceOption) error {
 			return nil
 		}
 
-PULL_SECRET_FALLBACK:
+	PULL_SECRET_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
+
+		return nil
+	case opts.DEV:
+		cachePath, err := devCachePath(c.opts.Connection, opts.SECRETS)
+		if err != nil {
+			return err
+		}
+
+		apiURL := fmt.Sprintf("%s/api/v1/resource/%s/%s/secret",
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
+		)
+
+		secretBytes, err := c.devLoadOrFetch(apiURL, cachePath, opts.SECRETS)
+		if err != nil {
+			return err
+		}
+
+		if err := c.storeRawResource(secretBytes, res.Def.Kind, res.Def.Name); err != nil {
+			return err
+		}
+
+		c.hasWatchableResource = true
+		cacheKey := fmt.Sprintf("dev_%s_%s_secret", c.opts.Connection.Namespace, c.opts.Connection.App)
+		watcherFileNameResourceMap[cacheKey] = watcherInfo{kind: opts.SECRETS, path: cachePath, isDev: true}
+		cacheDir := filepath.Dir(cachePath)
+		c.watcher.Add(cacheDir)
+		devLogWatching(opts.SECRETS, cacheDir)
 
 		return nil
 	}
@@ -436,7 +460,7 @@ func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 
 			// add watcher details
 			c.hasWatchableResource = true
-			watcherFileNameResourceMap["_"+res.Def.Name] = watcherInfo{opts.MISC, resourcePath, res.Def.Name}
+			watcherFileNameResourceMap["_"+res.Def.Name] = watcherInfo{kind: opts.MISC, path: resourcePath, name: res.Def.Name}
 			c.watcher.Add(res.Def.Path)
 
 			return nil
@@ -456,7 +480,7 @@ func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 			res.Def.Name,
 		)
 
-		resp, err := c.sailorClient.Get(url)
+		resp, err := c.doGet(url)
 		if err == nil {
 			if resp.StatusCode != http.StatusOK {
 				// goto fallback
@@ -482,10 +506,40 @@ func (c *Consumer[C, S]) manageMisc(res *opts.ResourceOption) error {
 			return nil
 		}
 
-PULL_MISC_FALLBACK:
+	PULL_MISC_FALLBACK:
 		if err := c.fetchFallback(res.Def.Kind, res.Def.Name); err != nil {
 			return err
 		}
+
+		return nil
+	case opts.DEV:
+		cachePath, err := devCachePath(c.opts.Connection, opts.MISC)
+		if err != nil {
+			return err
+		}
+
+		apiURL := fmt.Sprintf("%s/api/v1/resource/%s/%s/misc/%s",
+			c.opts.Connection.Addr,
+			c.opts.Connection.Namespace,
+			c.opts.Connection.App,
+			res.Def.Name,
+		)
+
+		miscBytes, err := c.devLoadOrFetch(apiURL, cachePath, opts.MISC)
+		if err != nil {
+			return err
+		}
+
+		if err := c.storeRawResource(miscBytes, res.Def.Kind, res.Def.Name); err != nil {
+			return err
+		}
+
+		c.hasWatchableResource = true
+		cacheKey := fmt.Sprintf("dev_%s_%s_misc_%s", c.opts.Connection.Namespace, c.opts.Connection.App, res.Def.Name)
+		watcherFileNameResourceMap[cacheKey] = watcherInfo{kind: opts.MISC, path: cachePath, name: res.Def.Name, isDev: true}
+		cacheDir := filepath.Dir(cachePath)
+		c.watcher.Add(cacheDir)
+		devLogWatching(opts.MISC, cacheDir)
 
 		return nil
 	}
@@ -541,7 +595,7 @@ func (c *Consumer[C, S]) keepPullingResource(res *opts.ResourceOption) {
 		)
 	}
 
-	resp, err := c.sailorClient.Get(url)
+	resp, err := c.doGet(url)
 	if err == nil {
 		if resp.StatusCode != http.StatusOK {
 			time.Sleep(res.FetchDef.PullInterval)
@@ -693,17 +747,58 @@ func parseURI(uri string) (*opts.ConnectionOption, error) {
 	return &opt, nil
 }
 
-// getEnvOrOpt returns the environment variable if present or the option provided
-// in init options.
-func getEnvOrOpt(v string, envName string, e error) (string, error) {
-	ev := os.Getenv(envName)
-	if ev != "" {
-		return ev, nil
+// devLoadOrFetch returns resource bytes from the cache file if it already exists,
+// otherwise fetches from the API, writes the result to cache, and returns it.
+func (c *Consumer[C, S]) devLoadOrFetch(apiURL, cachePath string, kind opts.ResourceKind) ([]byte, error) {
+	if data, err := os.ReadFile(cachePath); err == nil {
+		devLogCacheHit(kind, cachePath)
+		return data, nil
 	}
 
-	if v != "" {
-		return v, nil
+	devLogFetching(kind, apiURL)
+
+	resp, err := c.doGet(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, ErrFetchFallbackFailed
 	}
 
-	return "", e
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := os.WriteFile(cachePath, data, 0644); err != nil {
+		return nil, err
+	}
+
+	devLogCached(kind, cachePath)
+	return data, nil
+}
+
+func (c *Consumer[C, S]) doGet(url string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.opts.Connection != nil && c.opts.Connection.Token != "" {
+		req.Header.Set("x-token", c.opts.Connection.Token)
+	}
+	return c.sailorClient.Do(req)
+}
+
+func devCachePath(conn *opts.ConnectionOption, kind opts.ResourceKind) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".sailor", "cache")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("%s-%s-%s-%s.json", conn.Namespace, conn.App, conn.Env, kind)
+	return filepath.Join(dir, name), nil
 }
