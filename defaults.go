@@ -22,7 +22,9 @@ import (
 )
 
 const (
-	volume_mount_path = "/etc/sailor"
+	CONFIG_MOUNT_PATH = "/etc/sailor"
+	SECRET_MOUNT_PATH = "/etc/sailor/secret"
+	MISC_MOUNT_PATH   = "/etc/sailor/misc"
 )
 
 // ConfigMapDefault is a ResourceOption which looks for a config_map inside K8S volume
@@ -32,7 +34,7 @@ func ConfigMapDefault() opts.ResourceOption {
 	return opts.ResourceOption{
 		Def: opts.ResourceDefinition{
 			Kind: opts.CONFIGS,
-			Path: volume_mount_path,
+			Path: CONFIG_MOUNT_PATH,
 		},
 		FetchDef: opts.FetchDefinition{
 			Fetch: opts.VOLUME,
@@ -48,7 +50,7 @@ func SecretsDefault() opts.ResourceOption {
 	return opts.ResourceOption{
 		Def: opts.ResourceDefinition{
 			Kind: opts.SECRETS,
-			Path: volume_mount_path,
+			Path: SECRET_MOUNT_PATH,
 		},
 		FetchDef: opts.FetchDefinition{
 			Fetch: opts.VOLUME,
@@ -67,7 +69,7 @@ func MiscOnceDefault(resourceName string) opts.ResourceOption {
 		Def: opts.ResourceDefinition{
 			Kind: opts.MISC,
 			Name: resourceName,
-			Path: volume_mount_path,
+			Path: MISC_MOUNT_PATH,
 		},
 		FetchDef: opts.FetchDefinition{
 			Fetch: opts.PULL,

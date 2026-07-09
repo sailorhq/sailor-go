@@ -9,17 +9,17 @@ import (
 
 func TestDefaults(t *testing.T) {
 	configMap := ConfigMapDefault()
-	if configMap.Def.Kind != opts.CONFIGS || configMap.Def.Path != volume_mount_path || configMap.FetchDef.Fetch != opts.VOLUME || !configMap.FallbackEnabled {
+	if configMap.Def.Kind != opts.CONFIGS || configMap.Def.Path != CONFIG_MOUNT_PATH || configMap.FetchDef.Fetch != opts.VOLUME || !configMap.FallbackEnabled {
 		t.Errorf("ConfigMapDefault failed: %+v", configMap)
 	}
 
 	secrets := SecretsDefault()
-	if secrets.Def.Kind != opts.SECRETS || secrets.Def.Path != volume_mount_path || secrets.FetchDef.Fetch != opts.VOLUME || !secrets.FallbackEnabled {
+	if secrets.Def.Kind != opts.SECRETS || secrets.Def.Path != SECRET_MOUNT_PATH || secrets.FetchDef.Fetch != opts.VOLUME || !secrets.FallbackEnabled {
 		t.Errorf("SecretsDefault failed: %+v", secrets)
 	}
 
 	miscOnce := MiscOnceDefault("test-misc")
-	if miscOnce.Def.Kind != opts.MISC || miscOnce.Def.Name != "test-misc" || miscOnce.Def.Path != volume_mount_path || miscOnce.FetchDef.Fetch != opts.PULL || !miscOnce.FetchDef.Once || !miscOnce.FallbackEnabled {
+	if miscOnce.Def.Kind != opts.MISC || miscOnce.Def.Name != "test-misc" || miscOnce.Def.Path != MISC_MOUNT_PATH || miscOnce.FetchDef.Fetch != opts.PULL || !miscOnce.FetchDef.Once || !miscOnce.FallbackEnabled {
 		t.Errorf("MiscOnceDefault failed: %+v", miscOnce)
 	}
 
