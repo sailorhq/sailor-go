@@ -1,424 +1,140 @@
-# 🐧 Sailor Go - Consumer
+# sailor-go
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/sailorhq/sailor-go)](https://goreportcard.com/report/github.com/sailorhq/sailor-go)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-green.svg)](https://opensource.org/licenses/GPL-3.0)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/sailorhq/sailor-go)](https://golang.org)
+The Go consumer for Sailor. It keeps named configuration and secret resources current in memory, from a mounted file, from the Sailor server, or from a local development cache.
 
-> **A powerful Go library for seamless configuration and secret management in
-> Kubernetes environments**
+The behaviour is specified in [SAILOR_CONSUMER.md](SAILOR_CONSUMER.md). That document is the contract for this library and for any implementation in another language.
 
-Sailor-Go is a robust, type-safe configuration management library designed
-specifically for Go applications running in Kubernetes environments. It provides
-intelligent resource management with support for ConfigMaps, Secrets, and custom
-resources with automatic fallback mechanisms.
-
-## ✨ Features
-
-- 🔄 **Real-time Configuration Updates** - Watch for changes in mounted volumes
-  and ConfigMaps
-- 🔐 **Secure Secret Management** - Handle Kubernetes secrets with type safety
-- 📡 **Pull-based Updates** - Fetch configurations from remote Sailor API
-- 🛡️ **Fallback Support** - Automatic fallback mechanisms for high availability
-- 🎯 **Type Safety** - Generic types ensure compile-time safety
-- ⚡ **High Performance** - Atomic operations and efficient resource management
-- 🐳 **Kubernetes Native** - Designed specifically for K8s environments
-
-## 🚀 Quick Start
-
-### Installation
+## Install
 
 ```bash
 go get github.com/sailorhq/sailor-go
 ```
 
-### Basic Usage
+## Quick start
 
 ```go
-package main
-
-import (
-    "log"
-    "time"
-    
-    "github.com/sailorhq/sailor-go"
-    "github.com/sailorhq/sailor-go/pkg/opts"
-)
-
-// Define your configuration structure
 type AppConfig struct {
-    DatabaseURL string `json:"database_url"`
-    APIKey      string `json:"api_key"`
-    Port        int    `json:"port"`
+    Port     int    `json:"port"`
+    LogLevel string `json:"log_level"`
 }
 
-// Define your secrets structure
-type AppSecrets struct {
-    DatabasePassword string `json:"db_password"`
-    JWTSecret       string `json:"jwt_secret"`
-}
-
-func main() {
-    // Create initialization options
-    initOpts := opts.InitOption{
-        Connection: &opts.ConnectionOption{
-            Addr:      "https://sailor.example.com",
-            Namespace: "my-app",
-            App:       "web-service",
-            AccessKey: "your-access-key",
-            SecretKey: "your-secret-key",
-        },
-        Resources: []opts.ResourceOption{
-            sailor.ConfigMapDefault(),    // Use default ConfigMap
-            sailor.SecretsDefault(),      // Use default Secrets
-        },
-    }
-
-    // Create consumer
-    consumer, err := sailor.NewConsumer[AppConfig, AppSecrets](initOpts)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Start the consumer
-    if err := consumer.Start(); err != nil {
-        log.Fatal(err)
-    }
-
-    // Use configurations
-    config, err := consumer.Get()
-    if err != nil {
-        log.Printf("Error getting config: %v", err)
-        return
-    }
-
-    secrets, err := consumer.GetSecret()
-    if err != nil {
-        log.Printf("Error getting secrets: %v", err)
-        return
-    }
-
-    log.Printf("Database URL: %s", config.DatabaseURL)
-    log.Printf("Database Password: %s", secrets.DatabasePassword)
-}
-```
-
-## 📚 Examples
-
-### 1. Volume-based Configuration (Kubernetes)
-
-```go
-// Using volume-mounted ConfigMaps and Secrets
-initOpts := opts.InitOption{
-    Resources: []opts.ResourceOption{
-        sailor.ConfigMapDefault(),  // Mounts from /etc/sailor/_config
-        sailor.SecretsDefault(),    // Mounts from /etc/sailor/_secret
-    },
-}
-
-consumer, err := sailor.NewConsumer[AppConfig, AppSecrets](initOpts)
-```
-
-### 2. Pull-based Configuration (Remote API)
-
-```go
-// Fetch configurations from remote Sailor API
-initOpts := opts.InitOption{
+consumer, err := sailor.NewConsumer(opts.InitOption{
     Connection: &opts.ConnectionOption{
-        Addr:      "https://sailor.example.com",
-        Namespace: "production",
-        App:       "api-service",
-        AccessKey: "your-access-key",
-        SecretKey: "your-secret-key",
+        Addr:      "http://localhost:7766",
+        Namespace: "myteam",
+        App:       "hello-world",
+        AccessKey: accessKey,
+        SecretKey: secretKey,
+        Token:     appToken,
     },
     Resources: []opts.ResourceOption{
-        sailor.ConfigPullDefault(),    // Pulls every 10 seconds
-        sailor.SecretsPullDefault(),   // Pulls every 10 seconds
+        sailor.ConfigPullDefault[AppConfig](),
     },
-}
-```
-
-### 3. Custom Resource Management
-
-```go
-// Manage custom resources with specific intervals
-initOpts := opts.InitOption{
-    Connection: &opts.ConnectionOption{
-        Addr:      "https://sailor.example.com",
-        Namespace: "my-app",
-        App:       "web-service",
-        AccessKey: "your-access-key",
-        SecretKey: "your-secret-key",
-    },
-    Resources: []opts.ResourceOption{
-        {
-            Def: opts.ResourceDefinition{
-                Kind: opts.CONFIGS,
-            },
-            FetchDef: opts.FetchDefinition{
-                Fetch:        opts.PULL,
-                PullInterval: 30 * time.Second,  // Custom interval
-            },
-            FallbackEnabled: true,
-        },
-        sailor.MiscPullDefault("certificates"),  // Custom misc resource
-    },
-}
-```
-
-### 4. Environment Variable Configuration
-
-```go
-// Use environment variables for connection
-// Set these environment variables:
-// SAILOR_URL=https://sailor.example.com
-// SAILOR_NS=my-app
-// SAILOR_APP=web-service
-// SAILOR_ACCESS_KEY=your-access-key
-// SAILOR_SECRET_KEY=your-secret-key
-
-initOpts := opts.InitOption{
-    Resources: []opts.ResourceOption{
-        sailor.ConfigMapDefault(),
-        sailor.SecretsDefault(),
-    },
-    // Connection will be read from environment variables
-}
-
-consumer, err := sailor.NewConsumer[AppConfig, AppSecrets](initOpts)
-```
-
-### 5. Mixed Resource Types
-
-```go
-// Combine different resource types
-initOpts := opts.InitOption{
-    Connection: &opts.ConnectionOption{
-        Addr:      "https://sailor.example.com",
-        Namespace: "production",
-        App:       "api-service",
-        AccessKey: "your-access-key",
-        SecretKey: "your-secret-key",
-    },
-    Resources: []opts.ResourceOption{
-        sailor.ConfigMapDefault(),           // Volume-mounted config
-        sailor.SecretsPullDefault(),         // Pull-based secrets
-        sailor.MiscOnceDefault("ssl-certs"), // One-time misc resource
-    },
-}
-```
-
-## 🔧 Configuration Options
-
-### Resource Types
-
-| Type      | Description                | Usage                            |
-| --------- | -------------------------- | -------------------------------- |
-| `CONFIGS` | Application configurations | `sailor.ConfigMapDefault()`      |
-| `SECRETS` | Sensitive data             | `sailor.SecretsDefault()`        |
-| `MISC`    | Custom resources           | `sailor.MiscOnceDefault("name")` |
-
-### Fetch Methods
-
-| Method   | Description               | Use Case                        |
-| -------- | ------------------------- | ------------------------------- |
-| `VOLUME` | Read from mounted volumes | Kubernetes ConfigMaps/Secrets   |
-| `PULL`   | Fetch from remote API     | Remote configuration management |
-
-### Default Functions
-
-| Function                | Description       | Fetch Method | Interval   |
-| ----------------------- | ----------------- | ------------ | ---------- |
-| `ConfigMapDefault()`    | Default ConfigMap | Volume       | Real-time  |
-| `SecretsDefault()`      | Default Secrets   | Volume       | Real-time  |
-| `ConfigPullDefault()`   | Pull ConfigMap    | Pull         | 10 seconds |
-| `SecretsPullDefault()`  | Pull Secrets      | Pull         | 10 seconds |
-| `MiscOnceDefault(name)` | One-time Misc     | Pull         | Once       |
-| `MiscPullDefault(name)` | Pull Misc         | Pull         | 10 seconds |
-
-## 🛠️ Advanced Usage
-
-### Custom Resource Paths
-
-```go
-customResource := opts.ResourceOption{
-    Def: opts.ResourceDefinition{
-        Kind: opts.CONFIGS,
-        Path: "/custom/path",  // Custom mount path
-    },
-    FetchDef: opts.FetchDefinition{
-        Fetch: opts.VOLUME,
-    },
-    FallbackEnabled: true,
-}
-```
-
-### Custom Pull Intervals
-
-```go
-customPull := opts.ResourceOption{
-    Def: opts.ResourceDefinition{
-        Kind: opts.SECRETS,
-    },
-    FetchDef: opts.FetchDefinition{
-        Fetch:        opts.PULL,
-        PullInterval: 5 * time.Minute,  // Custom interval
-    },
-    FallbackEnabled: true,
-}
-```
-
-### Accessing Misc Resources
-
-```go
-// Get raw bytes from misc resource
-certBytes, err := consumer.GetMisc("ssl-certs")
+})
 if err != nil {
-    log.Printf("Error getting certificates: %v", err)
-    return
+    log.Fatal(err)
 }
-
-// Use the raw bytes as needed
-// e.g., write to file, parse as PEM, etc.
-```
-
-## 🔒 Security
-
-- **Type Safety**: All configurations are type-safe with compile-time checking
-- **Atomic Operations**: Uses atomic pointers for thread-safe access
-- **Secret Management**: Proper handling of sensitive data
-- **Fallback Support**: Ensures high availability with fallback mechanisms
-
-## 🐳 Kubernetes Integration
-
-### ConfigMap Example
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-    name: my-app-config
-data:
-    _config: |
-        {
-          "database_url": "postgresql://localhost:5432/myapp",
-          "api_key": "your-api-key",
-          "port": 8080
-        }
-```
-
-### Secret Example
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-    name: my-app-secrets
-type: Opaque
-data:
-    _secret: |
-        {
-          "db_password": "base64-encoded-password",
-          "jwt_secret": "base64-encoded-jwt-secret"
-        }
-```
-
-### Deployment Example
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-    name: my-app
-spec:
-    template:
-        spec:
-            containers:
-                - name: my-app
-                  image: my-app:latest
-                  volumeMounts:
-                      - name: sailor-config
-                        mountPath: /etc/sailor
-            volumes:
-                - name: sailor-config
-                  configMap:
-                      name: my-app-config
-                - name: sailor-secrets
-                  secret:
-                      secretName: my-app-secrets
-```
-
-## 🚨 Error Handling
-
-```go
-consumer, err := sailor.NewConsumer[AppConfig, AppSecrets](initOpts)
-if err != nil {
-    switch {
-    case errors.Is(err, sailor.ErrNewConsumerEmptyResourceList):
-        log.Fatal("No resources specified")
-    case errors.Is(err, sailor.ErrNewConsumerNoSailorURL):
-        log.Fatal("Sailor URL not provided")
-    case errors.Is(err, sailor.ErrNewConsumerNoSailorNS):
-        log.Fatal("Namespace not provided")
-    // ... handle other errors
-    }
+if err := consumer.Start(context.Background()); err != nil {
+    log.Fatal(err)
 }
+defer consumer.Close()
 
-// Handle runtime errors
-config, err := consumer.Get()
-if err != nil {
-    if errors.Is(err, sailor.ErrConfigsNotLoaded) {
-        log.Printf("Configs not loaded yet")
-        return
-    }
-    log.Printf("Error getting config: %v", err)
-}
+cfg, err := sailor.Get[AppConfig](consumer, "config")
 ```
 
-## 📖 API Reference
+`Start` loads every resource once and then keeps them current in the background. `Close` stops that work and waits for it. `Get` never blocks on I/O.
 
-### Consumer Methods
+## Connecting
 
-| Method          | Description               | Returns           |
-| --------------- | ------------------------- | ----------------- |
-| `Get()`         | Get current configuration | `(C, error)`      |
-| `GetSecret()`   | Get current secrets       | `(S, error)`      |
-| `GetMisc(name)` | Get misc resource by name | `([]byte, error)` |
+The connection comes from the first source that matches, in this order:
 
-### Error Types
+1. `SAILOR_URI` environment variable. It replaces the whole connection.
+2. `UseLocalConfig: true`, which reads `~/.sailor/config`. `Namespace` and `App` are still required from the caller.
+3. `Connection.URI`.
+4. The fields of `Connection` (`Addr`, `Namespace`, `App`, `AccessKey`, `SecretKey`, `Token`).
 
-| Error                             | Description             |
-| --------------------------------- | ----------------------- |
-| `ErrNewConsumerEmptyResourceList` | No resources specified  |
-| `ErrNewConsumerNoSailorURL`       | Sailor URL not provided |
-| `ErrNewConsumerNoSailorNS`        | Namespace not provided  |
-| `ErrNewConsumerNoSailorApp`       | App name not provided   |
-| `ErrNewConsumerNoSailorAccessKey` | Access key not provided |
-| `ErrNewConsumerNoSailorSecretKey` | Secret key not provided |
-| `ErrConfigsNotLoaded`             | Configs not loaded      |
-| `ErrSecretsNotLoaded`             | Secrets not loaded      |
-| `ErrMiscNotLoaded`                | Misc resource not found |
-| `ErrFetchFallbackFailed`          | Fallback fetch failed   |
+A URI has this form:
 
-## 🤝 Contributing
+```
+sailor://<access_key>:<secret_key>@<host[:port]>/<namespace>/<app>[?scheme=http|https]
+```
 
-We welcome contributions! Please see our
-[Contributing Guidelines](CONTRIBUTING.md) for details.
+The scheme defaults to `http`. Pass `?scheme=https` for an HTTPS server. A bare `Addr` such as `host:7766` also defaults to `http`. An explicit scheme is never overridden.
 
-## 📄 License
+The token comes from `Connection.Token` when set. Otherwise it comes from the `SAILOR_TOKEN` environment variable, which is read only on the URI paths.
 
-This project is licensed under the GNU General Public License v3.0 - see the
-[LICENSE](LICENSE) file for details.
+Transport warning: when a token is set and the scheme is `http` for a non-loopback host, the consumer logs `config.insecure_transport`. Use `https` for any server reached over a network.
 
-## 👥 Authors
+## Resources
 
-- **Ashish Shekar (codekidX)** - _Core development_
+| Constructor | Name | Mode | Encrypted | Source |
+|---|---|---|---|---|
+| `ConfigMapDefault[T]()` | `config` | VOLUME | no | `/etc/sailor/_config` |
+| `SecretsDefault[T]()` | `secret` | VOLUME | yes | `/etc/sailor/secret/_secret` |
+| `ConfigPullDefault[T]()` | `config` | PULL | no | server, every 10 s |
+| `SecretsPullDefault[T]()` | `secret` | PULL | yes | server, every 10 s |
+| `ConfigDevDefault[T]()` | `config` | DEV | no | `~/.sailor/cache` |
+| `SecretsDevDefault[T]()` | `secret` | DEV | yes | `~/.sailor/cache` |
+| `MiscPullDefault(name)` | name | PULL | no | server, raw bytes |
 
-## 🙏 Acknowledgments
+For your own resources, build them with `sailor.Resource[T](def, fetch)` or `sailor.Raw(def, fetch)`. Read a raw resource with `sailor.Get[[]byte]`.
 
-- Built with ❤️ for the Go and Kubernetes communities
-- Inspired by the need for better configuration management in cloud-native
-  applications
+- **VOLUME** reads a file that something else mounts and updates. A change to the file is picked up after a short debounce.
+- **PULL** polls the server. A poll that fails keeps the last good value and logs once when the outage starts and once when it recovers.
+- **DEV** caches the server copy under `~/.sailor/cache` for local work. A cache file that you have edited by hand is never overwritten.
 
----
+A VOLUME or PULL resource that cannot be loaded falls back to `SAILOR_FALLBACK_BASE_URL/{app}-{name}.sailor.fall`, when that variable is set.
 
-**Made with ⚡ by SailorHQ**
+## Encrypted resources
+
+Encrypted resources are decrypted inside the consumer. The key-encryption key is derived with HKDF-SHA256 from the secret key, using the access key as salt. Each value is AES-256-GCM encrypted under its own data key. The exact wire format and two known-answer vectors are in SAILOR_CONSUMER.md, section 6.
+
+## Consumer reports
+
+With a token configured, the consumer reports the digest it is serving when a resource changes, and again every 10 minutes. The Sailor console uses these reports for its deployment verification screen. Without a token the consumer logs `report.skipped_no_token` once per resource and sends nothing.
+
+## Logging
+
+Events are logged through an injectable `opts.Logger`. The default writes structured lines to standard error. Event names, levels and required fields are listed in SAILOR_CONSUMER.md, section 11.3. Secrets, tokens and decrypted values are never logged.
+
+The four events to watch in production:
+
+- `report.skipped_no_token`: the consumer is not reporting its state.
+- `resource.stale`: the consumer is serving an old value.
+- `resource.fallback_used`: the consumer is not talking to Sailor.
+- `config.resolved`: the address, scheme and token source that were chosen.
+
+## Options
+
+| Option | Default | Purpose |
+|---|---|---|
+| `Watch` | `true` | Watch VOLUME and DEV files for changes. |
+| `UseLocalConfig` | `false` | Read the connection from `~/.sailor/config`. |
+| `RequestTimeout` | 10 s | Timeout for each fetch. |
+| `ReportTimeout` | 5 s | Timeout for each consumer report. |
+| `Logger` | structured, stderr | Receives every event. |
+| `HTTPClient` | `&http.Client{}` | Performs every request. |
+| `Decoders` | JSON only | Decoders for other languages, such as YAML or TOML, keyed by lang. |
+
+Decoders belong to the consumer instance, so two consumers can use different decoders.
+
+## Errors
+
+Errors carry a stable code. Match them with `errors.Is` against the exported sentinels, for example `sailor.ErrResourceNotLoaded`. The full list is in SAILOR_CONSUMER.md, section 14.
+
+## Environment variables
+
+| Variable | Used for |
+|---|---|
+| `SAILOR_URI` | Connection URI (highest precedence). |
+| `SAILOR_TOKEN` | App token, on the URI paths only. |
+| `SAILOR_FALLBACK_BASE_URL` | Base URL of fallback files. |
+| `POD_NAME`, `POD_IP`, `NODE_NAME` | Optional details sent with consumer reports. |
+
+## Development
+
+```bash
+go test -race ./...
+```
+
+The tests drive timers with a fake clock and use an in-memory filesystem and a fake server. They do not sleep and do not need a running Sailor installation. The mapping from conformance cases to tests is in SAILOR_CONSUMER.md, section 18.
