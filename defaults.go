@@ -1,18 +1,3 @@
-// sailor-go
-// Copyright (C) 2025 SailorHQ and Ashish Shekar (codekidX)
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package sailor
 
 import (
@@ -24,123 +9,81 @@ import (
 const (
 	CONFIG_MOUNT_PATH = "/etc/sailor"
 	SECRET_MOUNT_PATH = "/etc/sailor/secret"
-	MISC_MOUNT_PATH   = "/etc/sailor/misc"
 )
 
-// ConfigMapDefault is a ResourceOption which looks for a config_map inside K8S volume
-// mounted path. If it does not find the resource it fetches the resource from
-// fallback.
-func ConfigMapDefault() opts.ResourceOption {
+// Resource declares a resource decoded into T with the lang's decoder
+// (SAILOR_CONSUMER.md section 4). Retrieve it with Get[T].
+func Resource[T any](def opts.ResourceDefinition, fetch opts.FetchDefinition) opts.ResourceOption {
 	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.CONFIGS,
-			Path: CONFIG_MOUNT_PATH,
+		Def:      def,
+		FetchDef: fetch,
+		Decode: func(raw []byte, decode opts.DecodeFunc) (any, error) {
+			var v T
+			if err := decode(raw, &v); err != nil {
+				return nil, err
+			}
+			return v, nil
 		},
-		FetchDef: opts.FetchDefinition{
-			Fetch: opts.VOLUME,
-		},
-		FallbackEnabled: true,
 	}
 }
 
-// SecretsDefault is a ResourceOption which looks for a k8s_secret inside K8S volume
-// mounted path. If it does not find the resource it fetches the resource from
-// fallback.
-func SecretsDefault() opts.ResourceOption {
-	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.SECRETS,
-			Path: SECRET_MOUNT_PATH,
-		},
-		FetchDef: opts.FetchDefinition{
-			Fetch: opts.VOLUME,
-		},
-		FallbackEnabled: true,
-	}
+// Raw declares a resource stored as bytes with no decoding. Retrieve it with Get[[]byte].
+func Raw(def opts.ResourceDefinition, fetch opts.FetchDefinition) opts.ResourceOption {
+	return opts.ResourceOption{Def: def, FetchDef: fetch}
 }
 
-// MiscOnceDefault is a ResourceOption which pulls a misc config from Sailor directly.
-// If it does not find the resource it fetches the resource from
-// fallback.
-// @NOTE: this only pulls the resource once, if you want the client to refresh on
-// certain interval, use `MiscPullDefault`.
-func MiscOnceDefault(resourceName string) opts.ResourceOption {
-	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.MISC,
-			Name: resourceName,
-			Path: MISC_MOUNT_PATH,
-		},
-		FetchDef: opts.FetchDefinition{
-			Fetch: opts.PULL,
-			Once:  true,
-		},
-		FallbackEnabled: true,
-	}
+// ConfigMapDefault reads resource "config" from the mounted volume.
+func ConfigMapDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "config", Path: CONFIG_MOUNT_PATH},
+		opts.FetchDefinition{Fetch: opts.VOLUME},
+	)
 }
 
-// ConfigPullDefault is a ResourceOption which pulls a config from Sailor using
-// pull method. This updates the config every 10 seconds.
-func ConfigPullDefault() opts.ResourceOption {
-	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.CONFIGS,
-		},
-		FetchDef: opts.FetchDefinition{
-			Fetch:        opts.PULL,
-			PullInterval: 10 * time.Second,
-		},
-		FallbackEnabled: true,
-	}
+// SecretsDefault reads the encrypted resource "secret" from the mounted volume.
+func SecretsDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "secret", Encrypted: true, Path: SECRET_MOUNT_PATH},
+		opts.FetchDefinition{Fetch: opts.VOLUME},
+	)
 }
 
-// SecretsPullDefault is a ResourceOption which pulls a secrets from Sailor using
-// pull method. This updates the config every 10 seconds.
-func SecretsPullDefault() opts.ResourceOption {
-	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.SECRETS,
-		},
-		FetchDef: opts.FetchDefinition{
-			Fetch:        opts.PULL,
-			PullInterval: 10 * time.Second,
-		},
-		FallbackEnabled: true,
-	}
+// ConfigPullDefault polls resource "config" every 10 seconds.
+func ConfigPullDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "config"},
+		opts.FetchDefinition{Fetch: opts.PULL, PullInterval: 10 * time.Second},
+	)
 }
 
-// MiscPullDefault is a ResourceOption which pulls a misc config from Sailor using
-// pull method. This updates the config every 10 seconds.
-func MiscPullDefault(resourceName string) opts.ResourceOption {
-	return opts.ResourceOption{
-		Def: opts.ResourceDefinition{
-			Kind: opts.MISC,
-			Name: resourceName,
-		},
-		FetchDef: opts.FetchDefinition{
-			Fetch:        opts.PULL,
-			PullInterval: 10 * time.Second,
-		},
-		FallbackEnabled: true,
-	}
+// SecretsPullDefault polls the encrypted resource "secret" every 10 seconds.
+func SecretsPullDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "secret", Encrypted: true},
+		opts.FetchDefinition{Fetch: opts.PULL, PullInterval: 10 * time.Second},
+	)
 }
 
-// ConfigDevDefault is a ResourceOption for local development. It fetches the
-// config from the Sailor API on startup, caches it to ~/.sailor/cache, and
-// watches that file for local edits — enabling live reload without redeployment.
-func ConfigDevDefault() opts.ResourceOption {
-	return opts.ResourceOption{
-		Def:      opts.ResourceDefinition{Kind: opts.CONFIGS},
-		FetchDef: opts.FetchDefinition{Fetch: opts.DEV},
-	}
+// MiscPullDefault polls a named raw resource every 10 seconds.
+func MiscPullDefault(name string) opts.ResourceOption {
+	return Raw(
+		opts.ResourceDefinition{Name: name},
+		opts.FetchDefinition{Fetch: opts.PULL, PullInterval: 10 * time.Second},
+	)
 }
 
-// SecretsDevDefault is a ResourceOption for local development. It fetches
-// secrets from the Sailor API on startup, caches them to ~/.sailor/cache, and
-// watches that file for local edits — enabling live reload without redeployment.
-func SecretsDevDefault() opts.ResourceOption {
-	return opts.ResourceOption{
-		Def:      opts.ResourceDefinition{Kind: opts.SECRETS},
-		FetchDef: opts.FetchDefinition{Fetch: opts.DEV},
-	}
+// ConfigDevDefault caches "config" under ~/.sailor/cache for local development.
+func ConfigDevDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "config"},
+		opts.FetchDefinition{Fetch: opts.DEV},
+	)
+}
+
+// SecretsDevDefault caches the encrypted "secret" under ~/.sailor/cache for local development.
+func SecretsDevDefault[T any]() opts.ResourceOption {
+	return Resource[T](
+		opts.ResourceDefinition{Name: "secret", Encrypted: true},
+		opts.FetchDefinition{Fetch: opts.DEV},
+	)
 }
