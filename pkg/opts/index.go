@@ -15,9 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package opts
 
-import "time"
-
-type ResourceKind string
+import (
+	"net/http"
+	"time"
+)
 
 type FetchOption int
 
@@ -25,71 +26,86 @@ const (
 	VOLUME FetchOption = iota + 1
 	PULL
 	DEV
-
-	CONFIGS ResourceKind = "config"
-	SECRETS ResourceKind = "secret"
-	MISC    ResourceKind = "misc"
 )
 
+type Level int
+
+const (
+	LevelDebug Level = iota
+	LevelInfo
+	LevelWarn
+	LevelError
+)
+
+// Logger receives structured events. Event names are part of the consumer
+// contract (SAILOR_CONSUMER.md section 11) and kv is alternating key/value.
+type Logger interface {
+	Log(level Level, event string, kv ...any)
+}
+
+// DecodeFunc unmarshals raw bytes into target.
+type DecodeFunc func(raw []byte, target any) error
+
 type ConnectionOption struct {
-	URI           string
-	Addr          string
-	Namespace     string
-	App           string
-	AccessKey     string
-	SecretKey     string
-	Token         string
-	Env           string
-	SocketTimeout time.Duration
+	URI       string
+	Addr      string
+	Namespace string
+	App       string
+	AccessKey string
+	SecretKey string
+	Token     string
+	Env       string
 }
 
 type InitOption struct {
 	Connection *ConnectionOption
-	Logging    bool
 
-	// Resources defines what all resources does the Sailor Client need to manage
+	// Resources declares every resource the consumer manages. At least one is required.
 	Resources []ResourceOption
 
-	// Watch flag toggles the watcher feature inside Sailor Client
+	// Watch toggles file watching for VOLUME and DEV resources. Nil means true.
 	Watch *bool
 
-	// UseSailorConfig reads connection details (host, token, env) from ~/.sailor/config.
-	// Connection.Namespace and Connection.App must still be provided by the caller.
-	UseSailorConfig bool
+	// UseLocalConfig reads the connection from ~/.sailor/config. Namespace and
+	// App must still be set in Connection.
+	UseLocalConfig bool
+
+	// RequestTimeout bounds each resource fetch. Zero means 10s.
+	RequestTimeout time.Duration
+
+	// ReportTimeout bounds each consumer-report POST. Zero means 5s.
+	ReportTimeout time.Duration
+
+	// Logger receives events. Nil means a structured logger on stderr.
+	Logger Logger
+
+	// HTTPClient performs every request. Its own Timeout is ignored in favour
+	// of RequestTimeout and ReportTimeout. Nil means a default client.
+	HTTPClient *http.Client
+
+	// Decoders adds or replaces decoders for a lang, keyed by normalised lang.
+	// Decoders are per consumer instance.
+	Decoders map[string]DecodeFunc
 }
 
 type ResourceDefinition struct {
-	Kind ResourceKind
-	Name string
-	Path string
+	Name      string
+	Lang      string
+	Encrypted bool
+	Path      string
 }
 
 type FetchDefinition struct {
-	// Fetch defines how and from where to fetch the resource
-	Fetch FetchOption
-
-	// Once tells client not to fetch the config more than once
-	// So for resources like ConfigMap & Secrets there will be no informer attached
-	// And for Misc resource we will fetch only once from Sailor
-	Once bool
-
-	// PullInterval is only used for FetchOption.Pull and defaults to 10 seconds
-	// if not passed during Resource Definition
+	Fetch        FetchOption
+	Once         bool
 	PullInterval time.Duration
 }
 
 type ResourceOption struct {
-	Def             ResourceDefinition
-	FetchDef        FetchDefinition
-	FallbackEnabled bool
-}
+	Def      ResourceDefinition
+	FetchDef FetchDefinition
 
-type SailorMeta struct {
-	Version string `json:"version"`
-}
-
-type SailorState struct {
-	Version string            `json:"config_ver"`
-	Config  []byte            `json:"config"`
-	Secrets map[string][]byte `json:"secrets"`
+	// Decode turns resolved bytes into the stored value. Nil stores the bytes
+	// verbatim. decode is the consumer's decoder for the resource's lang.
+	Decode func(raw []byte, decode DecodeFunc) (any, error)
 }
